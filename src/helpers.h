@@ -26,6 +26,15 @@ static const char *reg_names[NUM_REGS] = {
 #define ERR_MALFORMED   0x80    // Malformed (generic)
 #define ERR_BOUND       0x81    // Out-of-bounds access
 
+#define STAT_CF 0x1 // Carry
+#define STAT_OF 0x2 // Overflow
+#define STAT_ZF 0x4 // Zero
+#define STAT_SF 0x8 // Sign
+
+// Useful aliases (depends on the fact that the array name is "registers")
+#define dip     registers[16]
+#define dstat   registers[17]
+
 // 16 possible classes
 typedef enum
 {

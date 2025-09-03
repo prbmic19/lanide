@@ -17,6 +17,37 @@ const char *reg_name(int index)
     return "(bad)";
 }
 
+// Yeah... The ALU instructions implicitly update flags
+static inline void update_status(uint32_t *registers, int32_t result, int32_t lhs, int32_t rhs, char operation)
+{
+    (result == 0)
+        ? (dstat |= STAT_ZF)
+        : (dstat &= ~STAT_ZF);
+    (result < 0)
+        ? (dstat |= STAT_SF)
+        : (dstat &= ~STAT_SF);
+
+    switch (operation)
+    {
+        case '+':
+            ((uint32_t)result < (uint32_t)lhs)
+                ? (dstat |= STAT_CF)
+                : (dstat &= ~STAT_CF);
+            (((lhs ^ result) & (rhs ^ result)) >> 31)
+                ? (dstat |= STAT_OF)
+                : (dstat &= ~STAT_OF);
+            break;
+        case '-':
+            ((uint32_t)rhs > (uint32_t)lhs) // Borrow
+                ? (dstat |= STAT_CF)
+                : (dstat &= ~STAT_CF);
+            (((lhs ^ rhs) & (lhs ^ result)) >> 31)
+                ? (dstat |= STAT_OF)
+                : (dstat &= ~STAT_OF);
+            break;
+    }
+}
+
 int main(int argc, char **argv)
 {
     int exit_code = 0;
@@ -60,7 +91,6 @@ int main(int argc, char **argv)
     fclose(fin);
 
     uint32_t registers[18] = {0};
-#define dip registers[16]
     dip = TEXT_BASE;
 
     while (1)
@@ -88,11 +118,23 @@ int main(int argc, char **argv)
                         registers[rd32] = registers[rs32];
                         break;
                     case RR_ADD:
-                        registers[rd32] += registers[rs32];
+                    {
+                        int32_t lhs = registers[rd32];
+                        int32_t rhs = registers[rs32];
+                        int32_t result = lhs + rhs;
+                        registers[rd32] = result;
+                        update_status(registers, result, lhs, rhs, '+');
                         break;
+                    }
                     case RR_SUB:
-                        registers[rd32] -= registers[rs32];
+                    {
+                        int32_t lhs = registers[rd32];
+                        int32_t rhs = registers[rs32];
+                        int32_t result = lhs - rhs;
+                        registers[rd32] = result;
+                        update_status(registers, result, lhs, rhs, '-');
                         break;
+                    }
                     default:
                         fprintf(stderr, "Illegal RR subop 0x%x at address 0x%x\n", subop, dip);
                         exit_code = ERR_ILLINT;
@@ -110,11 +152,23 @@ int main(int argc, char **argv)
                         registers[r32] = imm20;
                         break;
                     case RI_ADD:
-                        registers[r32] += imm20;
+                    {
+                        int32_t lhs = registers[r32];
+                        int32_t rhs = imm20;
+                        int32_t result = lhs + rhs;
+                        registers[r32] = result;
+                        update_status(registers, result, lhs, rhs, '+');
                         break;
+                    }
                     case RI_SUB:
-                        registers[r32] -= imm20;
+                    {
+                        int32_t lhs = registers[r32];
+                        int32_t rhs = imm20;
+                        int32_t result = lhs - rhs;
+                        registers[r32] = result;
+                        update_status(registers, result, lhs, rhs, '-');
                         break;
+                    }
                     default:
                         fprintf(stderr, "Illegal RI subop 0x%x at address 0x%x\n", subop, dip);
                         exit_code = ERR_ILLINT;
@@ -180,7 +234,6 @@ int main(int argc, char **argv)
         }
 
         dip += 4;
-#undef dip
     }
 
 halted:
@@ -188,10 +241,10 @@ halted:
 
     for (int i = 0; i < NUM_REGS; i++)
     {
-        printf("%s\t0x%x\t%u\n", reg_name(i), registers[i], registers[i]);
+        printf("%s\t\t0x%x\t\t%u\n", reg_name(i), registers[i], registers[i]);
     }
 
-    printf("\nMemory (nonzero bytes, from 0x00000 to 0x00200):\n");
+    printf("\nMemory (non-zero bytes, from 0x00000 to 0x00200):\n");
     for (int addr = 0; addr < 0x200; addr++)
     {
         if (memory[addr] != 0)
