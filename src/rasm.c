@@ -31,7 +31,7 @@ int main(int argc, char **argv)
         char mnemonic[32];
         char operand1[32];
         char operand2[32];
-        uint32_t encoded_instruction = 0;
+        EncodedInstruction ei = { 0 };
         _Bool found = 0;
         int n = sscanf(line, "%31s %31[^,], %31s", mnemonic, operand1, operand2);
 
@@ -46,11 +46,11 @@ int main(int argc, char **argv)
             return ERR_ILLINT;
         }
 
-        for (size_t i = 0; i < instruction_count; i++)
+        for (uint8_t i = 0; i < instruction_count; i++)
         {
             if (strcmp(mnemonic, instruction_table[i].mnemonic) == 0)
             {
-                encoded_instruction = instruction_table[i].encode(operand1, operand2);
+                ei = instruction_table[i].encode(operand1, operand2);
                 found = 1;
                 break;
             }
@@ -62,7 +62,7 @@ int main(int argc, char **argv)
             return ERR_ILLINT;
         }
 
-        fwrite(&encoded_instruction, sizeof(encoded_instruction), 1, fout);
+        fwrite(ei.bytes, ei.length, 1, fout);
     }
 
     fclose(fin);

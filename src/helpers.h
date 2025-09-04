@@ -12,100 +12,101 @@ static const unsigned char magic_bytes[MAGIC_BYTES_SIZE] = {0x03, 0x00, 0x52, 0x
 #define NUM_REGS 18
 // GCC warns that this variable is unused, but it is definitely used.
 static const char *reg_names[NUM_REGS] = {
-    "dxa", "dxt", "dxc",                        // Accumulator, temporary, counter
-    "dd0", "dd1", "dd2", "dd3", "dd4", "dd5",   // Data/arguments
-    "dbp", "dsp",                               // Base pointer, stack pointer
-    "ds0", "ds1", "ds2", "ds3", "ds4",          // Callee-saved registers
-    "dip", "dstat"                              // Instruction pointer, Status/flags
+    "dxa", "dxt", "dxc",                        // accumulator, temporary, counter
+    "dd0", "dd1", "dd2", "dd3", "dd4", "dd5",   // data/arguments
+    "dbp", "dsp",                               // base pointer, stack pointer
+    "ds0", "ds1", "ds2", "ds3", "ds4",          // callee-saved registers
+    "dip", "dstat"                              // instruction pointer, Status/flags
 };
 
 #define MEM_SIZE (1024 * 1024)      // 1 MiB unified memory
-#define TEXT_BASE (MEM_SIZE / 2)    // Loads code in the middle of memory
+#define TEXT_BASE (MEM_SIZE / 2)    // loads code in the middle of memory
 
-#define ERR_ILLINT      0x7f    // Illegal instruction
-#define ERR_MALFORMED   0x80    // Malformed (generic)
-#define ERR_BOUND       0x81    // Out-of-bounds access
+#define ERR_ILLINT      0x7f    // illegal instruction
+#define ERR_MALFORMED   0x80    // malformed (generic)
+#define ERR_BOUND       0x81    // out-of-bounds access
 
-#define STAT_CF 0x1 // Carry
-#define STAT_OF 0x2 // Overflow
-#define STAT_ZF 0x4 // Zero
-#define STAT_SF 0x8 // Sign
+#define STAT_CF 0x1 // carry
+#define STAT_OF 0x2 // overflow
+#define STAT_ZF 0x4 // zero
+#define STAT_SF 0x8 // sign
 
-// Useful aliases (depends on the fact that the array name is "registers")
+// useful aliases (depends on the fact that a "registers" variable exists)
 #define dip     registers[16]
 #define dstat   registers[17]
+
+typedef struct
+{
+    uint8_t bytes[8];
+    int length; // 1, 2, 4, or 6
+} EncodedInstruction;
 
 // 16 possible classes
 typedef enum
 {
-    CLASS_RR, // reg-reg
-    CLASS_RI, // reg-imm
+    CLASS_REGREG,
+    CLASS_REGIMM,
     CLASS_MEM,
-    CLASS_SYS
+    CLASS_CTRLFLOW,
+    CLASS_MISC = 0xf
 } InstructionClass;
+
+// 16 instructions per class
+
 typedef enum
 {
-    RR_MOV,
-    RR_ADD,
-    RR_SUB
-} RegRegOp;
-typedef enum
-{
-    RI_MOV,
-    RI_ADD,
-    RI_SUB
-} RegImmOp;
-typedef enum
-{
-    MEM_LDB,
+    REGREG_ADD,
+    REGREG_SUB,
+    REGREG_MUL,
+    REGREG_DIV,
+    REGREG_AND,
+    REGREG_OR,
+    REGREG_XOR,
+    REGREG_NOT,
+    REGREG_MOV,
+    REGREG_SWP,
+
+    REGIMM_ADD = 0,
+    REGIMM_SUB,
+    REGIMM_MUL,
+    REGIMM_DIV,
+    REGIMM_AND,
+    REGIMM_OR,
+    REGIMM_XOR,
+    REGIMM_NOT,
+    REGIMM_MOV,
+
+    MEM_LDB = 0,
     MEM_STB,
     MEM_LDW,
     MEM_STW,
     MEM_LDD,
-    MEM_STD
-} MemOp;
-typedef enum
+    MEM_STD,
+    
+    MISC_HLT = 0,
+    MISC_NOP,
+
+    CTRLFLOW_UNIMPLEMENTED = 0
+} Opcode;
+
+static inline int get_length(uint8_t opcode)
 {
-    SYS_HLT
-} SysOp;
+    switch (opcode >> 4)
+    {
+        case CLASS_REGREG:
+            return 2;
+        case CLASS_REGIMM:
+            return 6;
+        case CLASS_MEM:
+            return 4; // for now
+        case CLASS_MISC:
+            return 1; // for now
+        default:
+            return 4;
+    }
+}
 
-// Bits 15..0 are reserved
-#define ENCODE_RR(subop, rd32, rs32) \
-    (((CLASS_RR & 0xf) << 28) | \
-        ((subop & 0xf) << 24) | \
-        ((rd32 & 0xf) << 20) | \
-        ((rs32 & 0xf) << 16))
-
-#define ENCODE_RI(subop, rd32, imm20) \
-    (((CLASS_RI & 0xf) << 28) | \
-        ((subop & 0xf) << 24) | \
-        ((rd32 & 0xf) << 20) | \
-        ((imm20) & 0xfffff))
-
-#define ENCODE_MEM(subop, rd32, imm20) \
-    (((CLASS_MEM & 0xf) << 28) | \
-        ((subop & 0xf) << 24) | \
-        ((rd32 & 0xf) << 20) | \
-        ((imm20) & 0xfffff))
-
-// Bits 23..0 are reserved
-#define ENCODE_SYS(subop) \
-    (((CLASS_SYS & 0xf) << 28) | \
-        ((subop & 0xf) << 24))
-
-#define GET_CLASS(instruction) (((instruction) >> 28) & 0xf)
-#define GET_SUBOP(instruction) (((instruction) >> 24) & 0xf)
-
-#define GET_RR_RD32(instruction) (((instruction) >> 20) & 0xf)
-#define GET_RR_RS32(instruction) (((instruction) >> 16) & 0xf)
-
-#define GET_RI_R32                  GET_RR_RD32
-#define GET_RI_IMM20(instruction)   ((instruction) & 0xfffff)
-
-#define GET_MEM_R32     GET_RI_R32
-#define GET_MEM_IMM20   GET_RI_IMM20
-
-// For the assembler
+// for the assembler
 #define VALIDATE_REG_INDEX(idx, name) \
     if ((idx) < 0) \
     { \

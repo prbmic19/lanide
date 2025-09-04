@@ -1,13 +1,5 @@
 #include "helpers.h"
 
-static inline uint32_t fetch_le32(const uint8_t *memory, size_t pc)
-{
-    return (uint32_t)memory[pc]
-        | ((uint32_t)memory[pc + 1] << 8)
-        | ((uint32_t)memory[pc + 2] << 16)
-        | ((uint32_t)memory[pc + 3] << 24);
-}
-
 const char *reg_name(int index)
 {
     if (index >= 0 && index < NUM_REGS)
@@ -17,35 +9,130 @@ const char *reg_name(int index)
     return "(bad)";
 }
 
-// Yeah... The ALU instructions implicitly update flags
-static inline void update_status(uint32_t *registers, int32_t result, int32_t lhs, int32_t rhs, char operation)
+typedef enum
 {
-    (result == 0)
-        ? (dstat |= STAT_ZF)
-        : (dstat &= ~STAT_ZF);
-    (result < 0)
-        ? (dstat |= STAT_SF)
-        : (dstat &= ~STAT_SF);
+    ALU_ADD,
+    ALU_SUB,
+    ALU_MUL,
+    ALU_DIV,
+    ALU_AND,
+    ALU_OR,
+    ALU_XOR,
+    ALU_NOT
+} AluOp;
+
+// yeah... the ALU instructions implicitly update flags
+static inline void update_status(uint32_t *registers, AluOp operation, int32_t result, int32_t lhs, int32_t rhs)
+{
+    if (result == 0)
+    {
+        dstat |= STAT_ZF;
+    }
+    else
+    {
+        dstat &= ~STAT_ZF;
+    }
+
+    if (result < 0)
+    {
+        dstat |= STAT_SF;
+    }
+    else
+    {
+        dstat &= ~STAT_SF;
+    }
 
     switch (operation)
     {
-        case '+':
-            ((uint32_t)result < (uint32_t)lhs)
-                ? (dstat |= STAT_CF)
-                : (dstat &= ~STAT_CF);
-            (((lhs ^ result) & (rhs ^ result)) >> 31)
-                ? (dstat |= STAT_OF)
-                : (dstat &= ~STAT_OF);
+        case ALU_ADD:
+            if ((uint32_t)result < (uint32_t)lhs)
+            {
+                dstat |= STAT_CF;
+            }
+            else
+            {
+                dstat &= ~STAT_CF;
+            }
+
+            if (((lhs ^ result) & (rhs ^ result)) >> 31)
+            {
+                dstat |= STAT_OF;
+            }
+            else
+            {
+                dstat &= ~STAT_OF;
+            }
             break;
-        case '-':
-            ((uint32_t)rhs > (uint32_t)lhs) // Borrow
-                ? (dstat |= STAT_CF)
-                : (dstat &= ~STAT_CF);
-            (((lhs ^ rhs) & (lhs ^ result)) >> 31)
-                ? (dstat |= STAT_OF)
-                : (dstat &= ~STAT_OF);
+        case ALU_SUB:
+            // borrow
+            if ((uint32_t)rhs > (uint32_t)lhs)
+            {
+                dstat |= STAT_CF;
+            }
+            else
+            {
+                dstat &= ~STAT_CF;
+            }
+            
+            if (((lhs ^ rhs) & (lhs ^ result)) >> 31)
+            {
+                dstat |= STAT_OF;
+            }
+            else
+            {
+                dstat &= ~STAT_OF;
+            }
+            break;
+        case ALU_MUL:
+            if ((int64_t)lhs * (int64_t)rhs > INT32_MAX || (int64_t)lhs * (int64_t)rhs < INT32_MIN)
+            {
+                dstat |= STAT_CF | STAT_OF;
+            }
+            else
+            {
+                dstat &= ~(STAT_CF | STAT_OF);
+            }
+            break;
+        default:
+            dstat &= ~(STAT_CF | STAT_OF); // division and logical operations don't generate CF/OF
+    }
+}
+
+static inline void alu_execute(uint32_t *registers, AluOp operation, uint8_t rd32, int32_t rhs)
+{
+    int32_t lhs = registers[rd32];
+    int32_t result;
+
+    switch (operation)
+    {
+        case ALU_ADD:
+            result = lhs + rhs;
+            break;
+        case ALU_SUB:
+            result = lhs - rhs;
+            break;
+        case ALU_MUL:
+            result = lhs * rhs;
+            break;
+        case ALU_DIV:
+            result = lhs / rhs;
+            break;
+        case ALU_AND:
+            result = lhs & rhs;
+            break;
+        case ALU_OR:
+            result = lhs | rhs;
+            break;
+        case ALU_XOR:
+            result = lhs ^ rhs;
+            break;
+        case ALU_NOT:
+            result = ~lhs;
             break;
     }
+
+    registers[rd32] = (uint32_t)result;
+    update_status(registers, operation, result, lhs, rhs);
 }
 
 int main(int argc, char **argv)
@@ -66,7 +153,7 @@ int main(int argc, char **argv)
     }
 
     char header[MAGIC_BYTES_SIZE];
-    size_t header_read = fread(header, 1, 5, fin);
+    size_t header_read = fread(header, 1, MAGIC_BYTES_SIZE, fin);
     if (header_read < MAGIC_BYTES_SIZE || memcmp(header, magic_bytes, MAGIC_BYTES_SIZE) != 0)
     {
         fprintf(stderr, "Invalid or missing magic bytes.\n");
@@ -102,75 +189,91 @@ int main(int argc, char **argv)
             break;
         }
 
-        uint32_t instruction = fetch_le32(memory, dip);
-        InstructionClass iclass = GET_CLASS(instruction);
-        uint8_t subop = GET_SUBOP(instruction);
+        uint8_t opcode = memory[dip];
+        int length = get_length(opcode);
+        uint8_t buffer[8] = { 0 };
+        memcpy(buffer, memory + dip, length);
 
-        switch (iclass)
+        uint8_t class = opcode >> 4;
+        Opcode op = opcode & 0xf;
+
+        switch (class)
         {
-            case CLASS_RR:
+            case CLASS_REGREG:
             {
-                uint8_t rd32 = GET_RR_RD32(instruction);
-                uint8_t rs32 = GET_RR_RS32(instruction);
-                switch (subop)
+                uint8_t rd32 = (buffer[1] >> 4) & 0xf;
+                uint8_t rs32 = buffer[1] & 0xf;
+                switch (op)
                 {
-                    case RR_MOV:
+                    case REGREG_MOV:
                         registers[rd32] = registers[rs32];
                         break;
-                    case RR_ADD:
-                    {
-                        int32_t lhs = registers[rd32];
-                        int32_t rhs = registers[rs32];
-                        int32_t result = lhs + rhs;
-                        registers[rd32] = result;
-                        update_status(registers, result, lhs, rhs, '+');
+                    case REGREG_ADD:
+                        alu_execute(registers, ALU_ADD, rd32, registers[rs32]);
                         break;
-                    }
-                    case RR_SUB:
-                    {
-                        int32_t lhs = registers[rd32];
-                        int32_t rhs = registers[rs32];
-                        int32_t result = lhs - rhs;
-                        registers[rd32] = result;
-                        update_status(registers, result, lhs, rhs, '-');
+                    case REGREG_SUB:
+                        alu_execute(registers, ALU_SUB, rd32, registers[rs32]);
                         break;
-                    }
+                    case REGREG_MUL:
+                        alu_execute(registers, ALU_MUL, rd32, registers[rs32]);
+                        break;
+                    case REGREG_DIV:
+                        alu_execute(registers, ALU_DIV, rd32, registers[rs32]);
+                        break;
+                    case REGREG_AND:
+                        alu_execute(registers, ALU_AND, rd32, registers[rs32]);
+                        break;
+                    case REGREG_OR:
+                        alu_execute(registers, ALU_OR, rd32, registers[rs32]);
+                        break;
+                    case REGREG_XOR:
+                        alu_execute(registers, ALU_XOR, rd32, registers[rs32]);
+                        break;
+                    case REGREG_NOT:
+                        alu_execute(registers, ALU_NOT, rd32, 0);
+                        break;
                     default:
-                        fprintf(stderr, "Illegal RR subop 0x%x at address 0x%x\n", subop, dip);
+                        fprintf(stderr, "Illegal REGREG opcode 0x%x at address 0x%x\n", op, dip);
                         exit_code = ERR_ILLINT;
                         goto halted;
                 }
                 break;
             }
-            case CLASS_RI:
+            case CLASS_REGIMM:
             {
-                uint8_t r32 = GET_RI_R32(instruction);
-                uint32_t imm20 = GET_RI_IMM20(instruction);
-                switch (subop)
+                uint8_t r32 = (buffer[1] >> 4) & 0xf;
+                uint32_t imm32 = buffer[2] | (buffer[3] << 8) | (buffer[4] << 16) | (buffer[5] << 24);
+                switch (op)
                 {
-                    case RI_MOV:
-                        registers[r32] = imm20;
+                    case REGIMM_MOV:
+                        registers[r32] = imm32;
                         break;
-                    case RI_ADD:
-                    {
-                        int32_t lhs = registers[r32];
-                        int32_t rhs = imm20;
-                        int32_t result = lhs + rhs;
-                        registers[r32] = result;
-                        update_status(registers, result, lhs, rhs, '+');
+                    case REGIMM_ADD:
+                        alu_execute(registers, ALU_ADD, r32, (int32_t)imm32);
                         break;
-                    }
-                    case RI_SUB:
-                    {
-                        int32_t lhs = registers[r32];
-                        int32_t rhs = imm20;
-                        int32_t result = lhs - rhs;
-                        registers[r32] = result;
-                        update_status(registers, result, lhs, rhs, '-');
+                    case REGIMM_SUB:
+                        alu_execute(registers, ALU_SUB, r32, (int32_t)imm32);
                         break;
-                    }
+                    case REGIMM_MUL:
+                        alu_execute(registers, ALU_MUL, r32, (int32_t)imm32);
+                        break;
+                    case REGIMM_DIV:
+                        alu_execute(registers, ALU_DIV, r32, (int32_t)imm32);
+                        break;
+                    case REGIMM_AND:
+                        alu_execute(registers, ALU_AND, r32, (int32_t)imm32);
+                        break;
+                    case REGIMM_OR:
+                        alu_execute(registers, ALU_OR, r32, (int32_t)imm32);
+                        break;
+                    case REGIMM_XOR:
+                        alu_execute(registers, ALU_XOR, r32, (int32_t)imm32);
+                        break;
+                    case REGIMM_NOT:
+                        alu_execute(registers, ALU_NOT, r32, 0);
+                        break;
                     default:
-                        fprintf(stderr, "Illegal RI subop 0x%x at address 0x%x\n", subop, dip);
+                        fprintf(stderr, "Illegal REGIMM opcode 0x%x at address 0x%x\n", op, dip);
                         exit_code = ERR_ILLINT;
                         goto halted;
                 }
@@ -178,9 +281,9 @@ int main(int argc, char **argv)
             }
             case CLASS_MEM:
             {
-                uint8_t r32 = GET_MEM_R32(instruction);
-                uint32_t imm20 = GET_MEM_IMM20(instruction);
-                switch (subop)
+                uint8_t r32 = (buffer[1] >> 4) & 0xf;
+                uint32_t imm20 = (buffer[1] & 0xf) | (buffer[2] << 4) | (buffer[3] << 12);
+                switch (op)
                 {
                     case MEM_LDB:
                         registers[r32] = memory[imm20];
@@ -208,40 +311,42 @@ int main(int argc, char **argv)
                         memory[imm20 + 3] = (uint8_t)((registers[r32] >> 24) & 0xff);
                         break;
                     default:
-                        fprintf(stderr, "Illegal MEM subop 0x%x at address 0x%x\n", subop, dip);
+                        fprintf(stderr, "Illegal MEM opcode 0x%x at address 0x%x\n", op, dip);
                         exit_code = ERR_ILLINT;
                         goto halted;
                 }
                 break;
             }
-            case CLASS_SYS:
+            case CLASS_MISC:
             {
-                switch (subop)
+                switch (op)
                 {
-                    case SYS_HLT:
+                    case MISC_HLT:
                         goto halted;
+                    case MISC_NOP:
+                        break;
                     default:
-                        fprintf(stderr, "Illegal SYS subop 0x%x at address 0x%x\n", subop, dip);
+                        fprintf(stderr, "Illegal MISC opcode 0x%x at address 0x%x\n", op, dip);
                         exit_code = ERR_ILLINT;
                         goto halted;
                 }
                 break;
             }
             default:
-                fprintf(stderr, "Illegal class 0x%x at address 0x%x\n", (int)iclass, dip);
+                fprintf(stderr, "Illegal class 0x%x at address 0x%x\n", class, dip);
                 exit_code = ERR_ILLINT;
                 goto halted;
         }
 
-        dip += 4;
+        dip += length;
     }
 
 halted:
-    // Print the program state at the end for now (I'll remove this in the future)
+    // print the program state at the end for now (I'll remove this in the future)
 
     for (int i = 0; i < NUM_REGS; i++)
     {
-        printf("%s\t\t0x%x\t\t%u\n", reg_name(i), registers[i], registers[i]);
+        printf("%-14s  0x%-14x  %u\n", reg_name(i), registers[i], registers[i]);
     }
 
     printf("\nMemory (non-zero bytes, from 0x00000 to 0x00200):\n");
@@ -249,7 +354,7 @@ halted:
     {
         if (memory[addr] != 0)
         {
-            printf("[0x%05x]\t0x%02x\t%u\n", addr, memory[addr], memory[addr]);
+            printf("0x%-12.05x  0x%-14.02x  %u\n", addr, memory[addr], memory[addr]);
         }
     }
 

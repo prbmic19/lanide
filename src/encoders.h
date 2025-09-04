@@ -1,11 +1,13 @@
 #pragma once
 #include <stdint.h>
 
+typedef EncodedInstruction (*EncodeFunction)(const char *, const char *);
+
 typedef struct
 {
     const char *mnemonic;
-    uint32_t (*encode)(const char *operand1, const char *operand2);
+    EncodeFunction encode;
 } InstructionHandler;
 
 extern InstructionHandler instruction_table[];
-extern const size_t instruction_count;
+extern const uint8_t instruction_count;
