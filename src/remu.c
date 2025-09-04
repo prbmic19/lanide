@@ -218,6 +218,12 @@ int main(int argc, char **argv)
                         alu_execute(registers, ALU_MUL, rd32, registers[rs32]);
                         break;
                     case REGREG_DIV:
+                        if (registers[rs32] == 0)
+                        {
+                            fprintf(stderr, "Illegal DIV instruction: divide-by-zero at address 0x%x\n", dip);
+                            exit_code = ERR_ILLINT;
+                            goto halted;
+                        }
                         alu_execute(registers, ALU_DIV, rd32, registers[rs32]);
                         break;
                     case REGREG_AND:
@@ -258,6 +264,12 @@ int main(int argc, char **argv)
                         alu_execute(registers, ALU_MUL, r32, (int32_t)imm32);
                         break;
                     case REGIMM_DIV:
+                        if (imm32 == 0)
+                        {
+                            fprintf(stderr, "Illegal DIV instruction: divide-by-zero at address 0x%x\n", dip);
+                            exit_code = ERR_ILLINT;
+                            goto halted;
+                        }
                         alu_execute(registers, ALU_DIV, r32, (int32_t)imm32);
                         break;
                     case REGIMM_AND:

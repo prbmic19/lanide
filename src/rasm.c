@@ -23,7 +23,7 @@ int main(int argc, char **argv)
     char line[256];
     while (fgets(line, sizeof(line), fin))
     {
-        if (line[0] == ';' || line[0] == '#' || line[0] == '\n')
+        if (line[0] == ';' || line[0] == '\n')
         {
             continue;
         }
