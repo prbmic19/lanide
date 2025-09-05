@@ -1,4 +1,3 @@
-#include <ctype.h>
 #include "helpers.h"
 #include "encoders.h"
 
@@ -54,6 +53,13 @@ int main(int argc, char **argv)
                 found = 1;
                 break;
             }
+        }
+
+        if (strcmp(mnemonic, "here") == 0)
+        {
+            ei.length = 1;
+            ei.bytes[0] = (uint8_t)strtol(operand1, NULL, 0);
+            found = 1;
         }
 
         if (!found)

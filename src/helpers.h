@@ -6,8 +6,8 @@
 #include <string.h>
 #include <stdint.h>
 
-#define MAGIC_BYTES_SIZE 5
-static const unsigned char magic_bytes[MAGIC_BYTES_SIZE] = {0x03, 0x00, 0x52, 0x58, 0x45}; // \x03\x00RXE (Robust eXtended Edition)
+#define MAGIC_BYTES_SIZE 6
+static const unsigned char magic_bytes[MAGIC_BYTES_SIZE] = {'\x7f', '\x00', 'W', 'O', 'O', 'F'};
 
 #define NUM_REGS 18
 // GCC warns that this variable is unused, but it is definitely used.

@@ -177,7 +177,7 @@ int main(int argc, char **argv)
     }
     fclose(fin);
 
-    uint32_t registers[18] = {0};
+    uint32_t registers[18] = { 0 };
     dip = TEXT_BASE;
 
     while (1)
@@ -345,7 +345,7 @@ int main(int argc, char **argv)
                 break;
             }
             default:
-                fprintf(stderr, "Illegal class 0x%x at address 0x%x\n", class, dip);
+                fprintf(stderr, "Illegal reserved class 0x%x at address 0x%x\n", class, dip);
                 exit_code = ERR_ILLINT;
                 goto halted;
         }
