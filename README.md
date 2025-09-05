@@ -9,7 +9,7 @@ I started this project out of curiosity about how instruction sets, assemblers, 
 
 ---
 
-## ✨ What makes this special?
+## What makes this special?
 Most RISC designs go all-in on **fixed 32-bit instruction widths**. RX breaks that mold: it uses **variable-length instructions** for better code density without giving up decode simplicity.
 
 ### Philosophy

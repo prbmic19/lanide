@@ -19,8 +19,10 @@ static const char *reg_names[NUM_REGS] = {
     "dip", "dstat"                              // instruction pointer, Status/flags
 };
 
-#define MEM_SIZE (1024 * 1024)      // 1 MiB unified memory
-#define TEXT_BASE (MEM_SIZE / 2)    // loads code in the middle of memory
+#define MEM_SIZE (1024 * 1024)          // 1 MiB unified memory
+#define TEXT_BASE (MEM_SIZE / 8)        // 12.5% into memory
+#define DATA_BASE (MEM_SIZE / 2)        // 50% into memory
+#define STACK_BASE (MEM_SIZE - 0x1000)  // At the very top, with a little safety margin
 
 #define ERR_ILLINT      0x7f    // illegal instruction
 #define ERR_MALFORMED   0x80    // malformed (generic)
@@ -32,6 +34,7 @@ static const char *reg_names[NUM_REGS] = {
 #define STAT_SF 0x8 // sign
 
 // useful aliases (depends on the fact that a "registers" variable exists)
+#define dsp     registers[10]
 #define dip     registers[16]
 #define dstat   registers[17]
 

@@ -179,6 +179,7 @@ int main(int argc, char **argv)
 
     uint32_t registers[18] = { 0 };
     dip = TEXT_BASE;
+    dsp = STACK_BASE;
 
     while (1)
     {
