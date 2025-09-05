@@ -1,15 +1,9 @@
-ifeq ($(OS),Windows_NT)
-	IS_WINDOWS := 1
-else
-	IS_WINDOWS := 0
-endif
-
 CC = gcc
 CCFLAGS = -Wall -Wextra -Wpedantic
 ASMSRC = src/rasm.c src/encoders.c
 EMUSRC = src/remu.c
-ASMEXE = $(BUILD_DIR)/rasm.exe
-EMUEXE = $(BUILD_DIR)/remu.exe
+ASMEXE = $(BUILD_DIR)/rasm
+EMUEXE = $(BUILD_DIR)/remu
 
 DEBUG ?= 0
 ifeq ($(DEBUG), 1)
@@ -20,7 +14,7 @@ else
 	BUILD_DIR = release
 endif
 
-ifeq ($(IS_WINDOWS), 1)
+ifeq ($(OS),Windows_NT)
 	MKDIR = if not exist $(BUILD_DIR) mkdir $(BUILD_DIR)
 	CLEAN = del /Q $(BUILD_DIR)\*
 else
