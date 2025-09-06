@@ -55,7 +55,7 @@ int main(int argc, char **argv)
             }
         }
 
-        if (strcmp(mnemonic, "here") == 0)
+        if (strcmp(mnemonic, "db") == 0)
         {
             ei.length = 1;
             ei.bytes[0] = (uint8_t)strtol(operand1, NULL, 0);

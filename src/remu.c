@@ -130,7 +130,6 @@ static inline void alu_execute(uint32_t *registers, AluOp operation, uint8_t rd3
             result = ~lhs;
             break;
     }
-
     registers[rd32] = (uint32_t)result;
     update_status(registers, operation, result, lhs, rhs);
 }
@@ -177,7 +176,7 @@ int main(int argc, char **argv)
     }
     fclose(fin);
 
-    uint32_t registers[18] = { 0 };
+    uint32_t registers[18] = {0};
     dip = TEXT_BASE;
     dsp = STACK_BASE;
 
@@ -185,14 +184,14 @@ int main(int argc, char **argv)
     {
         if (dip + 3 >= MEM_SIZE)
         {
-            fprintf(stderr, "instruction pointer out of bounds: 0x%x\n", dip);
+            fprintf(stderr, "Instruction pointer out of bounds: 0x%x\n", dip);
             exit_code = ERR_BOUND;
             break;
         }
 
         uint8_t opcode = memory[dip];
         int length = get_length(opcode);
-        uint8_t buffer[8] = { 0 };
+        uint8_t buffer[8] = {0};
         memcpy(buffer, memory + dip, length);
 
         uint8_t class = opcode >> 4;
@@ -330,8 +329,41 @@ int main(int argc, char **argv)
                 }
                 break;
             }
+	    case CLASS_BRANCH:
+	    {
+                uint32_t imm20 = (buffer[1] & 0xf) | (buffer[2] << 4) | (buffer[3] << 12);
+                // we continue to avoid "dip += length;"
+                switch (op)
+                {
+                    case BRANCH_BR:
+                        dip = imm20;
+                        continue;
+                    case BRANCH_BC:
+                        JUMP(imm20, dstat & STAT_CF);
+                        break;
+                    case BRANCH_BNC:
+                        JUMP(imm20, !(dstat & STAT_CF));
+                        break;
+                    case BRANCH_BO:
+                        JUMP(imm20, dstat & STAT_OF);
+                        break;
+                    case BRANCH_BNO:
+                        JUMP(imm20, !(dstat & STAT_OF));
+                        break;
+                    case BRANCH_BZ:
+                        JUMP(imm20, dstat & STAT_ZF);
+                        break;
+                    case BRANCH_BNZ:
+                        JUMP(imm20, !(dstat & STAT_ZF));
+                        break;
+                    default:
+                        fprintf(stderr, "Illegal BRANCH opcode %x at address %x\n", op, dip);
+                        exit_code = ERR_ILLINT;
+                        goto halted;
+                }
+                break;
+            }
             case CLASS_MISC:
-            {
                 switch (op)
                 {
                     case MISC_HLT:
@@ -344,7 +376,6 @@ int main(int argc, char **argv)
                         goto halted;
                 }
                 break;
-            }
             default:
                 fprintf(stderr, "Illegal reserved class 0x%x at address 0x%x\n", class, dip);
                 exit_code = ERR_ILLINT;

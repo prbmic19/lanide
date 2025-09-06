@@ -50,7 +50,7 @@ typedef enum
     CLASS_REGREG,
     CLASS_REGIMM,
     CLASS_MEM,
-    CLASS_CTRLFLOW,
+    CLASS_BRANCH,
     CLASS_MISC = 0xf
 } InstructionClass;
 
@@ -85,11 +85,19 @@ typedef enum
     MEM_STW,
     MEM_LDD,
     MEM_STD,
-    
-    MISC_HLT = 0,
-    MISC_NOP,
 
-    CTRLFLOW_UNIMPLEMENTED = 0
+    BRANCH_BR = 0,
+    BRANCH_BC,
+    BRANCH_BNC,
+    BRANCH_BO,
+    BRANCH_BNO,
+    BRANCH_BZ,
+    BRANCH_BNZ,
+    BRANCH_BS,
+    BRANCH_BNS,
+
+    MISC_HLT = 0,
+    MISC_NOP
 } Opcode;
 
 static inline int get_length(uint8_t opcode)
@@ -102,6 +110,8 @@ static inline int get_length(uint8_t opcode)
             return 6;
         case CLASS_MEM:
             return 4; // for now
+        case CLASS_BRANCH:
+	    return 4;
         case CLASS_MISC:
             return 1; // for now
         default:
@@ -124,6 +134,13 @@ static inline int get_length(uint8_t opcode)
     { \
         fprintf(stderr, "Invalid register: %s\n", name); \
         exit(ERR_MALFORMED); \
+    }
+
+#define JUMP(addr, condition) \
+    if (condition) \
+    { \
+	dip = addr; \
+	continue; \
     }
 
 #define _

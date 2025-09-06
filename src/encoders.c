@@ -44,6 +44,16 @@ static EncodedInstruction make_mem(Opcode opcode, uint8_t r32, uint32_t imm20)
     return ei;
 }
 
+static EncodedInstruction make_branch(Opcode opcode, uint32_t imm20)
+{
+    EncodedInstruction ei = { .length = 4 };
+    ei.bytes[0] = (CLASS_BRANCH << 4) | (opcode & 0xf);
+    ei.bytes[1] = imm20 & 0xf;
+    ei.bytes[2] = (imm20 >> 4) & 0xff;
+    ei.bytes[3] = (imm20 >> 12) & 0xff;
+    return ei;
+}
+
 static EncodedInstruction make_misc(Opcode opcode)
 {
     EncodedInstruction ei = { .length = 1 };
@@ -238,6 +248,51 @@ EncodedInstruction enc_std(const char *imm20, const char *r32)
     return make_mem(MEM_STD, r, (uint32_t)strtol(imm20, NULL, 0));
 }
 
+EncodedInstruction enc_br(const char *imm20, const char *)
+{
+    return make_branch(BRANCH_BR, (uint32_t)strtol(imm20, NULL, 0));
+}
+
+EncodedInstruction enc_bc(const char *imm20, const char *)
+{
+    return make_branch(BRANCH_BC, (uint32_t)strtol(imm20, NULL, 0));
+}
+
+EncodedInstruction enc_bnc(const char *imm20, const char *)
+{
+    return make_branch(BRANCH_BNC, (uint32_t)strtol(imm20, NULL, 0));
+}
+
+EncodedInstruction enc_bo(const char *imm20, const char *)
+{
+    return make_branch(BRANCH_BO, (uint32_t)strtol(imm20, NULL, 0));
+}
+
+EncodedInstruction enc_bno(const char *imm20, const char *)
+{
+    return make_branch(BRANCH_BNO, (uint32_t)strtol(imm20, NULL, 0));
+}
+
+EncodedInstruction enc_bz(const char *imm20, const char *)
+{
+    return make_branch(BRANCH_BZ, (uint32_t)strtol(imm20, NULL, 0));
+}
+
+EncodedInstruction enc_bnz(const char *imm20, const char *)
+{
+    return make_branch(BRANCH_BNZ, (uint32_t)strtol(imm20, NULL, 0));
+}
+
+EncodedInstruction enc_bs(const char *imm20, const char *)
+{
+    return make_branch(BRANCH_BS, (uint32_t)strtol(imm20, NULL, 0));
+}
+
+EncodedInstruction enc_bns(const char *imm20, const char *)
+{
+    return make_branch(BRANCH_BNS, (uint32_t)strtol(imm20, NULL, 0));
+}
+
 EncodedInstruction enc_hlt(const char *, const char *)
 {
     return make_misc(MISC_HLT);
@@ -273,6 +328,15 @@ InstructionHandler instruction_table[] = {
     {"stw", enc_stw},
     {"ldd", enc_ldd},
     {"std", enc_std},
+    {"br", enc_br},
+    {"bc", enc_bc},
+    {"bnc", enc_bnc},
+    {"bo", enc_bo},
+    {"bno", enc_bno},
+    {"bz", enc_bz},
+    {"bnz", enc_bnz},
+    {"bs", enc_bs},
+    {"bns", enc_bns},
     {"hlt", enc_hlt},
     {"nop", enc_nop}
 };
