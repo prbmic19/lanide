@@ -13,10 +13,10 @@ I started this project out of curiosity about how instruction sets, assemblers, 
 Most RISC designs go all-in on **fixed 32-bit instruction widths**. RX breaks that mold: it uses **variable-length instructions** for better code density without giving up decode simplicity.
 
 ### Philosophy
-- Still **RISC at heart** → load/store only, regular formats, and a small, consistent set of flags (CF, OF, ZF, SF)
+- Still **RISC at heart** → load/store only, regular formats, and a small, consistent set of flags (CF, ZF, SF, SF)
 - **No wasted bytes** → immediates aren't cramped into awkward bit fields.
 - **Readable encoding** → easy to follow for anyone writing an assembler or hacking on the emulator.
-- **Consistent flags** → all ALU ops update CF, OF, ZF, and SF in a predictable, uniform way.
+- **Consistent flags** → all ALU ops update CF, ZF, OF, and SF in a predictable, uniform way.
 
 ---
 

@@ -1,8 +1,17 @@
 #include "helpers.h"
 
+#define REG_COUNT 18
+static const char *reg_names[REG_COUNT] = {
+    "dxa", "dxt", "dxc",                        // accumulator, temporary, counter
+    "dd0", "dd1", "dd2", "dd3", "dd4", "dd5",   // data/arguments
+    "dbp", "dsp",                               // base pointer, stack pointer
+    "ds0", "ds1", "ds2", "ds3", "ds4",          // callee-saved registers
+    "dip", "dstat"                              // instruction pointer, Status/flags
+};
+
 const char *reg_name(int index)
 {
-    if (index >= 0 && index < NUM_REGS)
+    if (index >= 0 && index < REG_COUNT)
     {
         return reg_names[index];
     }
@@ -21,7 +30,7 @@ typedef enum
     ALU_NOT
 } AluOp;
 
-// yeah... the ALU instructions implicitly update flags
+// Yeah... the ALU instructions implicitly update flags
 static inline void update_status(uint32_t *registers, AluOp operation, int32_t result, int32_t lhs, int32_t rhs)
 {
     if (result == 0)
@@ -64,7 +73,7 @@ static inline void update_status(uint32_t *registers, AluOp operation, int32_t r
             }
             break;
         case ALU_SUB:
-            // borrow
+            // Borrow
             if ((uint32_t)rhs > (uint32_t)lhs)
             {
                 dstat |= STAT_CF;
@@ -94,7 +103,7 @@ static inline void update_status(uint32_t *registers, AluOp operation, int32_t r
             }
             break;
         default:
-            dstat &= ~(STAT_CF | STAT_OF); // division and logical operations don't generate CF/OF
+            dstat &= ~(STAT_CF | STAT_OF); // Division and logical operations don't generate CF/OF
     }
 }
 
@@ -205,9 +214,6 @@ int main(int argc, char **argv)
                 uint8_t rs32 = buffer[1] & 0xf;
                 switch (op)
                 {
-                    case REGREG_MOV:
-                        registers[rd32] = registers[rs32];
-                        break;
                     case REGREG_ADD:
                         alu_execute(registers, ALU_ADD, rd32, registers[rs32]);
                         break;
@@ -238,6 +244,14 @@ int main(int argc, char **argv)
                     case REGREG_NOT:
                         alu_execute(registers, ALU_NOT, rd32, 0);
                         break;
+                    case REGREG_MOV:
+                        registers[rd32] = registers[rs32];
+                        break;
+                    case REGREG_SWP:
+                        uint32_t temp = registers[rd32];
+                        registers[rd32] = registers[rs32];
+                        registers[rs32] = temp;
+                        break;
                     default:
                         fprintf(stderr, "Illegal REGREG opcode 0x%x at address 0x%x\n", op, dip);
                         exit_code = ERR_ILLINT;
@@ -251,9 +265,6 @@ int main(int argc, char **argv)
                 uint32_t imm32 = buffer[2] | (buffer[3] << 8) | (buffer[4] << 16) | (buffer[5] << 24);
                 switch (op)
                 {
-                    case REGIMM_MOV:
-                        registers[r32] = imm32;
-                        break;
                     case REGIMM_ADD:
                         alu_execute(registers, ALU_ADD, r32, (int32_t)imm32);
                         break;
@@ -283,6 +294,9 @@ int main(int argc, char **argv)
                         break;
                     case REGIMM_NOT:
                         alu_execute(registers, ALU_NOT, r32, 0);
+                        break;
+                    case REGIMM_MOV:
+                        registers[r32] = imm32;
                         break;
                     default:
                         fprintf(stderr, "Illegal REGIMM opcode 0x%x at address 0x%x\n", op, dip);
@@ -329,32 +343,38 @@ int main(int argc, char **argv)
                 }
                 break;
             }
-	    case CLASS_BRANCH:
-	    {
+	        case CLASS_BRANCH:
+	        {
                 uint32_t imm20 = (buffer[1] & 0xf) | (buffer[2] << 4) | (buffer[3] << 12);
-                // we continue to avoid "dip += length;"
+                // We continue to avoid "dip += length;"
                 switch (op)
                 {
-                    case BRANCH_BR:
+                    case BRANCH_JMP:
                         dip = imm20;
                         continue;
-                    case BRANCH_BC:
+                    case BRANCH_JC:
                         JUMP(imm20, dstat & STAT_CF);
                         break;
-                    case BRANCH_BNC:
+                    case BRANCH_JNC:
                         JUMP(imm20, !(dstat & STAT_CF));
                         break;
-                    case BRANCH_BO:
-                        JUMP(imm20, dstat & STAT_OF);
-                        break;
-                    case BRANCH_BNO:
-                        JUMP(imm20, !(dstat & STAT_OF));
-                        break;
-                    case BRANCH_BZ:
+                    case BRANCH_JZ:
                         JUMP(imm20, dstat & STAT_ZF);
                         break;
-                    case BRANCH_BNZ:
+                    case BRANCH_JNZ:
                         JUMP(imm20, !(dstat & STAT_ZF));
+                        break;
+                    case BRANCH_JO:
+                        JUMP(imm20, dstat & STAT_OF);
+                        break;
+                    case BRANCH_JNO:
+                        JUMP(imm20, !(dstat & STAT_OF));
+                        break;
+                    case BRANCH_JS:
+                        JUMP(imm20, dstat & STAT_SF);
+                        break;
+                    case BRANCH_JNS:
+                        JUMP(imm20, !(dstat & STAT_SF));
                         break;
                     default:
                         fprintf(stderr, "Illegal BRANCH opcode %x at address %x\n", op, dip);
@@ -386,9 +406,9 @@ int main(int argc, char **argv)
     }
 
 halted:
-    // print the program state at the end for now (I'll remove this in the future)
+    // Print the program state at the end for now (I'll remove this in the future)
 
-    for (int i = 0; i < NUM_REGS; i++)
+    for (int i = 0; i < REG_COUNT; i++)
     {
         printf("%-14s  0x%-14x  %u\n", reg_name(i), registers[i], registers[i]);
     }
@@ -398,7 +418,7 @@ halted:
     {
         if (memory[addr] != 0)
         {
-            printf("0x%-12.05x  0x%-14.02x  %u\n", addr, memory[addr], memory[addr]);
+            printf("0x%-12.05x  0x%-14.02x  %c\n", addr, memory[addr], (memory[addr] >= 32 && memory[addr] <= 126) ? memory[addr] : '.');
         }
     }
 

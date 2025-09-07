@@ -9,31 +9,21 @@
 #define MAGIC_BYTES_SIZE 6
 static const unsigned char magic_bytes[MAGIC_BYTES_SIZE] = {'\x7f', '\x00', 'W', 'O', 'O', 'F'};
 
-#define NUM_REGS 18
-// GCC warns that this variable is unused, but it is definitely used.
-static const char *reg_names[NUM_REGS] = {
-    "dxa", "dxt", "dxc",                        // accumulator, temporary, counter
-    "dd0", "dd1", "dd2", "dd3", "dd4", "dd5",   // data/arguments
-    "dbp", "dsp",                               // base pointer, stack pointer
-    "ds0", "ds1", "ds2", "ds3", "ds4",          // callee-saved registers
-    "dip", "dstat"                              // instruction pointer, Status/flags
-};
+#define MEM_SIZE    0x100000            // 1 MiB unified memory
+#define TEXT_BASE   (MEM_SIZE / 8)      // 12.5% into memory
+#define DATA_BASE   (MEM_SIZE / 2)      // 50% into memory
+#define STACK_BASE  (MEM_SIZE - 0x1000) // At the very top, with a little safety margin
 
-#define MEM_SIZE (1024 * 1024)          // 1 MiB unified memory
-#define TEXT_BASE (MEM_SIZE / 8)        // 12.5% into memory
-#define DATA_BASE (MEM_SIZE / 2)        // 50% into memory
-#define STACK_BASE (MEM_SIZE - 0x1000)  // At the very top, with a little safety margin
+#define ERR_ILLINT      0x7f    // Illegal instruction
+#define ERR_MALFORMED   0x80    // Malformed (generic)
+#define ERR_BOUND       0x81    // Out-of-bounds access
 
-#define ERR_ILLINT      0x7f    // illegal instruction
-#define ERR_MALFORMED   0x80    // malformed (generic)
-#define ERR_BOUND       0x81    // out-of-bounds access
+#define STAT_CF 0x1 // Carry
+#define STAT_ZF 0x2 // Zero
+#define STAT_OF 0x4 // Overflow
+#define STAT_SF 0x8 // Sign
 
-#define STAT_CF 0x1 // carry
-#define STAT_OF 0x2 // overflow
-#define STAT_ZF 0x4 // zero
-#define STAT_SF 0x8 // sign
-
-// useful aliases (depends on the fact that a "registers" variable exists)
+// Useful aliases (depends on the fact that a "registers" variable exists)
 #define dsp     registers[10]
 #define dip     registers[16]
 #define dstat   registers[17]
@@ -86,15 +76,15 @@ typedef enum
     MEM_LDD,
     MEM_STD,
 
-    BRANCH_BR = 0,
-    BRANCH_BC,
-    BRANCH_BNC,
-    BRANCH_BO,
-    BRANCH_BNO,
-    BRANCH_BZ,
-    BRANCH_BNZ,
-    BRANCH_BS,
-    BRANCH_BNS,
+    BRANCH_JMP = 0,
+    BRANCH_JC,
+    BRANCH_JNC,
+    BRANCH_JZ,
+    BRANCH_JNZ,
+    BRANCH_JO,
+    BRANCH_JNO,
+    BRANCH_JS,
+    BRANCH_JNS,
 
     MISC_HLT = 0,
     MISC_NOP
@@ -109,17 +99,17 @@ static inline int get_length(uint8_t opcode)
         case CLASS_REGIMM:
             return 6;
         case CLASS_MEM:
-            return 4; // for now
+            return 4;
         case CLASS_BRANCH:
-	    return 4;
+            return 4;
         case CLASS_MISC:
-            return 1; // for now
+            return 1; // For now
         default:
             return 4;
     }
 }
 
-// for the assembler
+// For the assembler
 #define VALIDATE_REG_INDEX(idx, name) \
     if ((idx) < 0) \
     { \
