@@ -8,6 +8,16 @@ int main(int argc, char **argv)
         fprintf(stderr, "Usage: rasm <input.asm> <output.lx>\n");
         return 1;
     }
+    if (!has_ext(argv[1], ".asm"))
+    {
+        fprintf(stderr, "Input file must have .asm extension\n");
+        return 1;
+    }
+    if (!has_ext(argv[2], ".lx"))
+    {
+        fprintf(stderr, "Output file must have .lx extension\n");
+        return 1;
+    }
 
     FILE *fin = fopen(argv[1], "r");
     FILE *fout = fopen(argv[2], "wb");

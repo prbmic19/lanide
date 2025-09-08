@@ -116,6 +116,17 @@ static inline int get_length(uint8_t opcode)
     }
 }
 
+static inline _Bool has_ext(const char *filename, const char *ext)
+{
+    size_t filename_length = strlen(filename);
+    size_t ext_length = strlen(ext);
+    if (filename_length < ext_length)
+    {
+        return 0;
+    }
+    return strcmp(filename + filename_length - ext_length, ext) == 0;
+}
+
 // For the assembler
 #define VALIDATE_REG_INDEX(idx, name) \
     if ((idx) < 0) \

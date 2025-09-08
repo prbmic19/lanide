@@ -152,6 +152,11 @@ int main(int argc, char **argv)
         fprintf(stderr, "Usage: remu <program.lx>\n");
         return 1;
     }
+    if (!has_ext(argv[1], ".lx"))
+    {
+        fprintf(stderr, "Input file must have .lx extension");
+        return 1;
+    }
 
     FILE *fin = fopen(argv[1], "rb");
     if (!fin)
