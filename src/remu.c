@@ -2,11 +2,11 @@
 
 #define REG_COUNT 18
 static const char *reg_names[REG_COUNT] = {
-    "dxa", "dxt", "dxc",                        // accumulator, temporary, counter
-    "dd0", "dd1", "dd2", "dd3", "dd4", "dd5",   // data/arguments
-    "dbp", "dsp",                               // base pointer, stack pointer
-    "ds0", "ds1", "ds2", "ds3", "ds4",          // callee-saved registers
-    "dip", "dstat"                              // instruction pointer, Status/flags
+    "dxa", "dxt", "dxc",                        // Accumulator, temporary, counter
+    "dd0", "dd1", "dd2", "dd3", "dd4", "dd5",   // Data/arguments
+    "dbp", "dsp",                               // Base pointer, stack pointer
+    "ds0", "ds1", "ds2", "ds3", "ds4",          // Callee-saved registers
+    "dip", "dstat"                              // Instruction pointer, Status/flags
 };
 
 const char *reg_name(int index)
@@ -291,9 +291,6 @@ int main(int argc, char **argv)
                         break;
                     case REGIMM_XOR:
                         alu_execute(registers, ALU_XOR, r32, (int32_t)imm32);
-                        break;
-                    case REGIMM_NOT:
-                        alu_execute(registers, ALU_NOT, r32, 0);
                         break;
                     case REGIMM_MOV:
                         registers[r32] = imm32;

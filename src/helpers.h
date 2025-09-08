@@ -7,7 +7,7 @@
 #include <stdint.h>
 
 #define MAGIC_BYTES_SIZE 6
-static const unsigned char magic_bytes[MAGIC_BYTES_SIZE] = {'\x7f', '\x00', 'W', 'O', 'O', 'F'};
+static const uint8_t magic_bytes[MAGIC_BYTES_SIZE] = {'\x7f', '\x00', 'W', 'O', 'O', 'F'};
 
 #define MEM_SIZE    0x100000            // 1 MiB unified memory
 #define TEXT_BASE   (MEM_SIZE / 8)      // 12.5% into memory
@@ -66,7 +66,6 @@ typedef enum
     REGIMM_AND,
     REGIMM_OR,
     REGIMM_XOR,
-    REGIMM_NOT,
     REGIMM_MOV,
 
     MEM_LDB = 0,
@@ -105,7 +104,15 @@ static inline int get_length(uint8_t opcode)
         case CLASS_MISC:
             return 1; // For now
         default:
-            return 4;
+        {
+            union
+            {
+                uint8_t b;
+                int i;
+            } pun;
+            pun.b = opcode;
+            return (pun.i % 6) + 1;
+        }
     }
 }
 
@@ -116,7 +123,7 @@ static inline int get_length(uint8_t opcode)
         fprintf(stderr, "Invalid register: %s\n", name); \
         fclose(fin); \
         fclose(fout); \
-        return ERR_BADSYM; \
+        return ERR_MALFORMED; \
     }
 
 #define _VALIDATE_REG_INDEX(idx, name) \
@@ -129,8 +136,8 @@ static inline int get_length(uint8_t opcode)
 #define JUMP(addr, condition) \
     if (condition) \
     { \
-	dip = addr; \
-	continue; \
+        dip = addr; \
+        continue; \
     }
 
 #define _
