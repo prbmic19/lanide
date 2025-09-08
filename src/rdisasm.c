@@ -91,10 +91,10 @@ int main(int argc, char **argv)
             break;
         }
 
-        printf("  %05x:  ", ip);
+        printf("  %05x:   ", ip);
 
         print_hex_bytes(memory, ip, length);
-        printf("  ");
+        printf("   ");
 
         uint8_t class = opcode >> 4;
         uint8_t op = opcode & 0xf;
@@ -106,7 +106,7 @@ int main(int argc, char **argv)
                 uint8_t b1 = memory[ip + 1];
                 uint8_t rd32 = (b1 >> 4) & 0xf;
                 uint8_t rs32 = b1 & 0xf;
-                const char *mnemonics[] = {"add", "sub", "mul", "div", "and", "or", "xor", "not", "mov", "swp"};
+                const char *mnemonics[] = {"add", "sub", "mul", "div", "and", "or", "xor", "not", "mov", "xchg"};
                 if (op < 10)
                 {
                     if (op == REGREG_NOT)
@@ -129,7 +129,7 @@ int main(int argc, char **argv)
                 uint8_t rinfo = memory[ip + 1];
                 uint8_t r32 = (rinfo >> 4) & 0xf;
                 uint32_t imm32 = memory[ip + 2] | (memory[ip + 3] << 8) | (memory[ip + 4] << 16) | (memory[ip + 5] << 24);
-                const char *mnemonics[] = {"add", "sub", "mul", "div", "and", "or", "xor", "not", "mov"};
+                const char *mnemonics[] = {"add", "sub", "mul", "div", "and", "or", "xor", "mov"};
                 if (op < 9)
                 {
                     printf("%s\t%s,0x%x", mnemonics[op], reg_name(r32), imm32);
@@ -148,7 +148,14 @@ int main(int argc, char **argv)
                 const char *mnemonics[] = {"ldb", "stb", "ldw", "stw", "ldd", "std"};
                 if (op < 6)
                 {
-                    printf("%s\t0x%x,%s", mnemonics[op], imm20, reg_name(r32));
+                    if (mnemonics[op][0] == 's')
+                    {
+                        printf("%s\t0x%x,%s", mnemonics[op], imm20, reg_name(r32));
+                    }
+                    else
+                    {
+                        printf("%s\t%s,0x%x", mnemonics[op], reg_name(r32), imm20);
+                    }
                 }
                 else
                 {

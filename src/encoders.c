@@ -227,13 +227,13 @@ EncodedInstruction enc_mov(const char *rd32, const char *src)
     }
 }
 
-EncodedInstruction enc_swp(const char *rd32, const char *rs32)
+EncodedInstruction enc_xchg(const char *rd32, const char *rs32)
 {
     int r1 = reg_index(rd32);
     int r2 = reg_index(rs32);
     _VALIDATE_REG_INDEX(r1, rd32);
     _VALIDATE_REG_INDEX(r2, rs32);
-    return make_regreg(REGREG_SWP, r1, r2);
+    return make_regreg(REGREG_XCHG, r1, r2);
 }
 
 EncodedInstruction enc_ldb(const char *r32, const char *imm20)
@@ -343,7 +343,7 @@ InstructionHandler instruction_table[] = {
     {"xor", enc_xor},
     {"not", enc_not},
     {"mov", enc_mov},
-    {"swp", enc_swp},
+    {"xchg", enc_xchg},
     {"ldb", enc_ldb},
     {"stb", enc_stb},
     {"ldw", enc_ldw},

@@ -252,7 +252,7 @@ int main(int argc, char **argv)
                     case REGREG_MOV:
                         registers[rd32] = registers[rs32];
                         break;
-                    case REGREG_SWP:
+                    case REGREG_XCHG:
                         uint32_t temp = registers[rd32];
                         registers[rd32] = registers[rs32];
                         registers[rs32] = temp;

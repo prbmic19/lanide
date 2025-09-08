@@ -57,7 +57,7 @@ typedef enum
     REGREG_XOR,
     REGREG_NOT,
     REGREG_MOV,
-    REGREG_SWP,
+    REGREG_XCHG,
 
     REGIMM_ADD = 0,
     REGIMM_SUB,
