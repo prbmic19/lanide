@@ -257,6 +257,20 @@ int main(int argc, char **argv)
                         registers[rd32] = registers[rs32];
                         registers[rs32] = temp;
                         break;
+                    case REGREG_PUSH:
+                        dsp -= 4;
+                        memory[dsp]     = (uint8_t)(registers[rd32] & 0xff);
+                        memory[dsp + 1] = (uint8_t)((registers[rd32] >> 8) & 0xff);
+                        memory[dsp + 2] = (uint8_t)((registers[rd32] >> 16) & 0xff);
+                        memory[dsp + 3] = (uint8_t)((registers[rd32] >> 24) & 0xff);
+                        break;
+                    case REGREG_POP:
+                        registers[rd32] = (uint32_t)memory[dsp]
+                            | ((uint32_t)memory[dsp + 1] << 8)
+                            | ((uint32_t)memory[dsp + 2] << 16)
+                            | ((uint32_t)memory[dsp + 3] << 24);
+                        dsp += 4;
+                        break;
                     default:
                         fprintf(stderr, "Illegal REGREG opcode 0x%x at address 0x%x\n", op, dip);
                         exit_code = ERR_ILLINT;
@@ -378,6 +392,28 @@ int main(int argc, char **argv)
                     case BRANCH_JNS:
                         JUMP(imm20, !(dstat & STAT_SF));
                         break;
+                    case BRANCH_CALL:
+                    {
+                        // Push the address of the next instruction on stack
+                        uint32_t return_address = dip + length;
+                        dsp -= 4;
+                        memory[dsp]     = (uint8_t)(imm20 & 0xff);
+                        memory[dsp + 1] = (uint8_t)((imm20 >> 8) & 0xff);
+                        memory[dsp + 2] = (uint8_t)((imm20 >> 16) & 0xff);
+                        memory[dsp + 3] = (uint8_t)((imm20 >> 24) & 0xff);
+                        dip = return_address;
+                        continue;
+                    }
+                    case BRANCH_RET:
+                    {
+                        uint32_t return_address = (uint32_t)memory[dsp]
+                            | ((uint32_t)memory[dsp + 1] << 8)
+                            | ((uint32_t)memory[dsp + 2] << 16)
+                            | ((uint32_t)memory[dsp + 3] << 24);
+                        dsp += 4;
+                        dip = return_address;
+                        continue;
+                    }
                     default:
                         fprintf(stderr, "Illegal BRANCH opcode %x at address %x\n", op, dip);
                         exit_code = ERR_ILLINT;

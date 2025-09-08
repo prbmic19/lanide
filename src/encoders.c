@@ -236,6 +236,18 @@ EncodedInstruction enc_xchg(const char *rd32, const char *rs32)
     return make_regreg(REGREG_XCHG, r1, r2);
 }
 
+EncodedInstruction enc_push(const char *r32, const char *)
+{
+    int r = reg_index(r32);
+    return make_regreg(REGREG_PUSH, r, 0); // Intentionally at the source nibble
+}
+
+EncodedInstruction enc_pop(const char *r32, const char *)
+{
+    int r = reg_index(r32);
+    return make_regreg(REGREG_POP, r, 0);
+}
+
 EncodedInstruction enc_ldb(const char *r32, const char *imm20)
 {
     int r = reg_index(r32);
@@ -323,6 +335,16 @@ EncodedInstruction enc_jns(const char *imm20, const char *)
     return make_branch(BRANCH_JNS, (uint32_t)strtoul(imm20, NULL, 0));
 }
 
+EncodedInstruction enc_call(const char *imm20, const char *)
+{
+    return make_branch(BRANCH_CALL, (uint32_t)strtoul(imm20, NULL, 0));
+}
+
+EncodedInstruction enc_ret(const char *imm20, const char *)
+{
+    return make_branch(BRANCH_RET, (uint32_t)strtoul(imm20, NULL, 0));
+}
+
 EncodedInstruction enc_hlt(const char *, const char *)
 {
     return make_misc(MISC_HLT);
@@ -344,6 +366,8 @@ InstructionHandler instruction_table[] = {
     {"not", enc_not},
     {"mov", enc_mov},
     {"xchg", enc_xchg},
+    {"push", enc_push},
+    {"pop", enc_pop},
     {"ldb", enc_ldb},
     {"stb", enc_stb},
     {"ldw", enc_ldw},
@@ -359,6 +383,8 @@ InstructionHandler instruction_table[] = {
     {"jno", enc_jno},
     {"js", enc_js},
     {"jns", enc_jns},
+    {"call", enc_call},
+    {"ret", enc_ret},
     {"hlt", enc_hlt},
     {"nop", enc_nop}
 };

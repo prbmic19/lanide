@@ -58,6 +58,8 @@ typedef enum
     REGREG_NOT,
     REGREG_MOV,
     REGREG_XCHG,
+    REGREG_PUSH,
+    REGREG_POP,
 
     REGIMM_ADD = 0,
     REGIMM_SUB,
@@ -84,6 +86,8 @@ typedef enum
     BRANCH_JNO,
     BRANCH_JS,
     BRANCH_JNS,
+    BRANCH_CALL,
+    BRANCH_RET,
 
     MISC_HLT = 0,
     MISC_NOP

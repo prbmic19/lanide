@@ -106,10 +106,10 @@ int main(int argc, char **argv)
                 uint8_t b1 = memory[ip + 1];
                 uint8_t rd32 = (b1 >> 4) & 0xf;
                 uint8_t rs32 = b1 & 0xf;
-                const char *mnemonics[] = {"add", "sub", "mul", "div", "and", "or", "xor", "not", "mov", "xchg"};
-                if (op < 10)
+                const char *mnemonics[] = {"add", "sub", "mul", "div", "and", "or", "xor", "not", "mov", "xchg", "push", "pop"};
+                if (op < 12)
                 {
-                    if (op == REGREG_NOT)
+                    if (op == REGREG_NOT || op == REGREG_PUSH || op == REGREG_POP)
                     {
                         printf("%s\t%s", mnemonics[op], reg_name(rd32));
                     }
@@ -167,8 +167,8 @@ int main(int argc, char **argv)
             {
                 uint8_t b1 = memory[ip + 1];
                 uint32_t imm20 = (b1 & 0xf) | (memory[ip+2] << 4) | (memory[ip+3] << 12);
-                const char *mnemonics[] = {"jmp", "jc", "jnc", "jz", "jnz", "jo", "jno", "js", "jns"};
-                if (op < 9)
+                const char *mnemonics[] = {"jmp", "jc", "jnc", "jz", "jnz", "jo", "jno", "js", "jns", "call", "ret"};
+                if (op < 11)
                 {
                     printf("%s\t0x%x", mnemonics[op], imm20);
                 }
