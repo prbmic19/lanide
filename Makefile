@@ -1,8 +1,10 @@
 CC = gcc
 CCFLAGS = -Wall -Wextra -Wpedantic
 ASMSRC = src/rasm.c src/encoders.c
+DISASMSRC = src/rdisasm.c
 EMUSRC = src/remu.c
 ASMEXE = $(BUILD_DIR)/rasm
+DISASMEXE = $(BUILD_DIR)/rdisasm
 EMUEXE = $(BUILD_DIR)/remu
 
 DEBUG ?= 0
@@ -22,7 +24,7 @@ else
 	CLEAN = rm -rf $(BUILD_DIR)/*
 endif
 
-all: $(BUILD_DIR) assembler emulator
+all: $(BUILD_DIR) assembler disassembler emulator
 
 $(BUILD_DIR):
 	$(MKDIR)
@@ -30,10 +32,13 @@ $(BUILD_DIR):
 assembler:
 	$(CC) $(CCFLAGS) $(ASMSRC) -o $(ASMEXE)
 
+disassembler:
+	$(CC) $(CCFLAGS) $(DISASMSRC) -o $(DISASMEXE)
+
 emulator:
 	$(CC) $(CCFLAGS) $(EMUSRC) -o $(EMUEXE)
 
 clean:
 	$(CLEAN)
 
-.PHONY: all clean assembler emulator
+.PHONY: all clean assembler disassembler emulator
