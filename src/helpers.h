@@ -87,10 +87,10 @@ typedef enum
     BRANCH_JS,
     BRANCH_JNS,
     BRANCH_CALL,
-    BRANCH_RET,
 
     MISC_HLT = 0,
-    MISC_NOP
+    MISC_NOP,
+    MISC_RET
 } Opcode;
 
 static inline int get_length(uint8_t opcode)

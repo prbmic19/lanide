@@ -1,4 +1,3 @@
-#include <ctype.h>
 #include "helpers.h"
 #include "encoders.h"
 
@@ -342,11 +341,6 @@ ENCODER_DEFINE(call, imm20, )
     return make_branch(BRANCH_CALL, (uint32_t)strtoul(imm20, NULL, 0));
 }
 
-ENCODER_DEFINE(ret, imm20, )
-{
-    return make_branch(BRANCH_RET, (uint32_t)strtoul(imm20, NULL, 0));
-}
-
 ENCODER_DEFINE(hlt, , )
 {
     return make_misc(MISC_HLT);
@@ -355,6 +349,11 @@ ENCODER_DEFINE(hlt, , )
 ENCODER_DEFINE(nop, , )
 {
     return make_misc(MISC_NOP);
+}
+
+ENCODER_DEFINE(ret, , )
+{
+    return make_misc(MISC_RET);
 }
 
 InstructionHandler instruction_table[] = {
@@ -386,8 +385,8 @@ InstructionHandler instruction_table[] = {
     ENCODER_ADD(js),
     ENCODER_ADD(jns),
     ENCODER_ADD(call),
-    ENCODER_ADD(ret),
     ENCODER_ADD(hlt),
     ENCODER_ADD(nop),
+    ENCODER_ADD(ret),
 };
 const uint8_t instruction_count = sizeof(instruction_table) / sizeof(instruction_table[0]);

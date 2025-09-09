@@ -158,7 +158,7 @@ int main(int argc, char **argv)
             {
                 uint8_t b1 = memory[ip + 1];
                 uint32_t imm20 = (b1 & 0xf) | (memory[ip + 2] << 4) | (memory[ip + 3] << 12);
-                const char *mnemonics[] = {"jmp", "jc", "jnc", "jz", "jnz", "jo", "jno", "js", "jns", "call", "ret"};
+                const char *mnemonics[] = {"jmp", "jc", "jnc", "jz", "jnz", "jo", "jno", "js", "jns", "call"};
                 if (op < sizeof(mnemonics) / sizeof(mnemonics[0]))
                 {
                     printf("%-7s 0x%x", mnemonics[op], imm20);
@@ -177,6 +177,9 @@ int main(int argc, char **argv)
                         break;
                     case MISC_NOP:
                         printf("nop");
+                        break;
+                    case MISC_RET:
+                        printf("ret");
                         break;
                     default:
                         BAD_INSTRUCTION();

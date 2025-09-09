@@ -350,8 +350,8 @@ int main(int argc, char **argv)
                 }
                 break;
             }
-	        case CLASS_BRANCH:
-	        {
+            case CLASS_BRANCH:
+            {
                 uint32_t imm20 = (buffer[1] & 0xf) | (buffer[2] << 4) | (buffer[3] << 12);
                 // We continue to avoid "dip += length;"
                 switch (op)
@@ -388,21 +388,11 @@ int main(int argc, char **argv)
                         // Push the address of the next instruction on stack
                         uint32_t return_address = dip + length;
                         dsp -= 4;
-                        memory[dsp]     = (uint8_t)(imm20 & 0xff);
-                        memory[dsp + 1] = (uint8_t)((imm20 >> 8) & 0xff);
-                        memory[dsp + 2] = (uint8_t)((imm20 >> 16) & 0xff);
-                        memory[dsp + 3] = (uint8_t)((imm20 >> 24) & 0xff);
-                        dip = return_address;
-                        continue;
-                    }
-                    case BRANCH_RET:
-                    {
-                        uint32_t return_address = (uint32_t)memory[dsp]
-                            | ((uint32_t)memory[dsp + 1] << 8)
-                            | ((uint32_t)memory[dsp + 2] << 16)
-                            | ((uint32_t)memory[dsp + 3] << 24);
-                        dsp += 4;
-                        dip = return_address;
+                        memory[dsp]     = (uint8_t)(return_address & 0xff);
+                        memory[dsp + 1] = (uint8_t)((return_address >> 8) & 0xff);
+                        memory[dsp + 2] = (uint8_t)((return_address >> 16) & 0xff);
+                        memory[dsp + 3] = (uint8_t)((return_address >> 24) & 0xff);
+                        dip = imm20;
                         continue;
                     }
                     default:
@@ -419,6 +409,16 @@ int main(int argc, char **argv)
                         goto halted;
                     case MISC_NOP:
                         break;
+                    case MISC_RET:
+                    {
+                        uint32_t return_address = (uint32_t)memory[dsp]
+                            | ((uint32_t)memory[dsp + 1] << 8)
+                            | ((uint32_t)memory[dsp + 2] << 16)
+                            | ((uint32_t)memory[dsp + 3] << 24);
+                        dsp += 4;
+                        dip = return_address;
+                        continue;
+                    }
                     default:
                         fprintf(stderr, "Illegal MISC opcode 0x%x at address 0x%x\n", op, dip);
                         exit_code = ERR_ILLINT;
