@@ -108,15 +108,7 @@ static inline int get_length(uint8_t opcode)
         case CLASS_MISC:
             return 1; // For now
         default:
-        {
-            union
-            {
-                uint8_t b;
-                int i;
-            } pun;
-            pun.b = opcode;
-            return (pun.i % 6) + 1;
-        }
+            return 1;
     }
 }
 

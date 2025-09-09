@@ -9,15 +9,6 @@ static const char *reg_names[REG_COUNT] = {
     "dip", "dstat"                              // Instruction pointer, Status/flags
 };
 
-const char *reg_name(int index)
-{
-    if (index >= 0 && index < REG_COUNT)
-    {
-        return reg_names[index];
-    }
-    return "(bad)";
-}
-
 typedef enum
 {
     ALU_ADD,
@@ -448,7 +439,7 @@ halted:
 
     for (int i = 0; i < REG_COUNT; i++)
     {
-        printf("%-14s  0x%-14x  %u\n", reg_name(i), registers[i], registers[i]);
+        printf("%-14s  0x%-14x  %u\n", reg_names[i], registers[i], registers[i]);
     }
 
     printf("\nMemory (non-zero bytes, from 0x00000 to 0x00200):\n");

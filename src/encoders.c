@@ -2,6 +2,9 @@
 #include "helpers.h"
 #include "encoders.h"
 
+#define ENCODER_DEFINE(mnemonic, operand1, operand2) EncodedInstruction enc_##mnemonic(const char *operand1, const char *operand2)
+#define ENCODER_ADD(mnemonic) {#mnemonic, enc_##mnemonic}
+
 #define REG_COUNT 18
 static const char *reg_names[REG_COUNT] = {
     "dxa", "dxt", "dxc",                        // Accumulator, temporary, counter
@@ -92,7 +95,7 @@ static EncodedInstruction make_misc(Opcode opcode)
     return ei;
 }
 
-EncodedInstruction enc_add(const char *rd32, const char *src)
+ENCODER_DEFINE(add, rd32, src)
 {
     int r1 = reg_index(rd32);
     int r2;
@@ -108,7 +111,7 @@ EncodedInstruction enc_add(const char *rd32, const char *src)
     }
 }
 
-EncodedInstruction enc_sub(const char *rd32, const char *src)
+ENCODER_DEFINE(sub, rd32, src)
 {
     int r1 = reg_index(rd32);
     int r2;
@@ -124,7 +127,7 @@ EncodedInstruction enc_sub(const char *rd32, const char *src)
     }
 }
 
-EncodedInstruction enc_mul(const char *rd32, const char *src)
+ENCODER_DEFINE(mul, rd32, src)
 {
     int r1 = reg_index(rd32);
     int r2;
@@ -140,7 +143,7 @@ EncodedInstruction enc_mul(const char *rd32, const char *src)
     }
 }
 
-EncodedInstruction enc_div(const char *rd32, const char *src)
+ENCODER_DEFINE(div, rd32, src)
 {
     int r1 = reg_index(rd32);
     int r2;
@@ -156,7 +159,7 @@ EncodedInstruction enc_div(const char *rd32, const char *src)
     }
 }
 
-EncodedInstruction enc_and(const char *rd32, const char *src)
+ENCODER_DEFINE(and, rd32, src)
 {
     int r1 = reg_index(rd32);
     int r2;
@@ -172,7 +175,7 @@ EncodedInstruction enc_and(const char *rd32, const char *src)
     }
 }
 
-EncodedInstruction enc_or(const char *rd32, const char *src)
+ENCODER_DEFINE(or, rd32, src)
 {
     int r1 = reg_index(rd32);
     int r2;
@@ -188,7 +191,7 @@ EncodedInstruction enc_or(const char *rd32, const char *src)
     }
 }
 
-EncodedInstruction enc_xor(const char *rd32, const char *src)
+ENCODER_DEFINE(xor, rd32, src)
 {
     int r1 = reg_index(rd32);
     int r2;
@@ -204,14 +207,13 @@ EncodedInstruction enc_xor(const char *rd32, const char *src)
     }
 }
 
-// Not exactly reg-reg, oh well
-EncodedInstruction enc_not(const char *r32, const char *)
+ENCODER_DEFINE(not, r32, )
 {
     int r = reg_index(r32);
     return make_regreg(REGREG_NOT, r, 0);
 }
 
-EncodedInstruction enc_mov(const char *rd32, const char *src)
+ENCODER_DEFINE(mov, rd32, src)
 {
     int r1 = reg_index(rd32);
     int r2;
@@ -227,7 +229,7 @@ EncodedInstruction enc_mov(const char *rd32, const char *src)
     }
 }
 
-EncodedInstruction enc_xchg(const char *rd32, const char *rs32)
+ENCODER_DEFINE(xchg, rd32, rs32)
 {
     int r1 = reg_index(rd32);
     int r2 = reg_index(rs32);
@@ -236,156 +238,156 @@ EncodedInstruction enc_xchg(const char *rd32, const char *rs32)
     return make_regreg(REGREG_XCHG, r1, r2);
 }
 
-EncodedInstruction enc_push(const char *r32, const char *)
+ENCODER_DEFINE(push, r32, )
 {
     int r = reg_index(r32);
-    return make_regreg(REGREG_PUSH, r, 0); // Intentionally at the source nibble
+    return make_regreg(REGREG_PUSH, r, 0);
 }
 
-EncodedInstruction enc_pop(const char *r32, const char *)
+ENCODER_DEFINE(pop, r32, )
 {
     int r = reg_index(r32);
     return make_regreg(REGREG_POP, r, 0);
 }
 
-EncodedInstruction enc_ldb(const char *r32, const char *imm20)
+ENCODER_DEFINE(ldb, r32, imm20)
 {
     int r = reg_index(r32);
     _VALIDATE_REG_INDEX(r, r32);
     return make_mem(MEM_LDB, r, (uint32_t)strtoul(imm20, NULL, 0));
 }
 
-EncodedInstruction enc_stb(const char *imm20, const char *r32)
+ENCODER_DEFINE(stb, imm20, r32)
 {
     int r = reg_index(r32);
     _VALIDATE_REG_INDEX(r, r32);
     return make_mem(MEM_STB, r, (uint32_t)strtoul(imm20, NULL, 0));
 }
 
-EncodedInstruction enc_ldw(const char *r32, const char *imm20)
+ENCODER_DEFINE(ldw, r32, imm20)
 {
     int r = reg_index(r32);
     _VALIDATE_REG_INDEX(r, r32);
     return make_mem(MEM_LDW, r, (uint32_t)strtoul(imm20, NULL, 0));
 }
 
-EncodedInstruction enc_stw(const char *imm20, const char *r32)
+ENCODER_DEFINE(stw, imm20, r32)
 {
     int r = reg_index(r32);
     _VALIDATE_REG_INDEX(r, r32);
     return make_mem(MEM_STW, r, (uint32_t)strtoul(imm20, NULL, 0));
 }
 
-EncodedInstruction enc_ldd(const char *r32, const char *imm20)
+ENCODER_DEFINE(ldd, r32, imm20)
 {
     int r = reg_index(r32);
     _VALIDATE_REG_INDEX(r, r32);
     return make_mem(MEM_LDD, r, (uint32_t)strtoul(imm20, NULL, 0));
 }
 
-EncodedInstruction enc_std(const char *imm20, const char *r32)
+ENCODER_DEFINE(std, imm20, r32)
 {
     int r = reg_index(r32);
     _VALIDATE_REG_INDEX(r, r32);
     return make_mem(MEM_STD, r, (uint32_t)strtoul(imm20, NULL, 0));
 }
 
-EncodedInstruction enc_jmp(const char *imm20, const char *)
+ENCODER_DEFINE(jmp, imm20, )
 {
     return make_branch(BRANCH_JMP, (uint32_t)strtoul(imm20, NULL, 0));
 }
 
-EncodedInstruction enc_jc(const char *imm20, const char *)
+ENCODER_DEFINE(jc, imm20, )
 {
     return make_branch(BRANCH_JC, (uint32_t)strtoul(imm20, NULL, 0));
 }
 
-EncodedInstruction enc_jnc(const char *imm20, const char *)
+ENCODER_DEFINE(jnc, imm20, )
 {
     return make_branch(BRANCH_JNC, (uint32_t)strtoul(imm20, NULL, 0));
 }
 
-EncodedInstruction enc_jz(const char *imm20, const char *)
+ENCODER_DEFINE(jz, imm20, )
 {
     return make_branch(BRANCH_JZ, (uint32_t)strtoul(imm20, NULL, 0));
 }
 
-EncodedInstruction enc_jnz(const char *imm20, const char *)
+ENCODER_DEFINE(jnz, imm20, )
 {
     return make_branch(BRANCH_JNZ, (uint32_t)strtoul(imm20, NULL, 0));
 }
 
-EncodedInstruction enc_jo(const char *imm20, const char *)
+ENCODER_DEFINE(jo, imm20, )
 {
     return make_branch(BRANCH_JO, (uint32_t)strtoul(imm20, NULL, 0));
 }
 
-EncodedInstruction enc_jno(const char *imm20, const char *)
+ENCODER_DEFINE(jno, imm20, )
 {
     return make_branch(BRANCH_JNO, (uint32_t)strtoul(imm20, NULL, 0));
 }
 
-EncodedInstruction enc_js(const char *imm20, const char *)
+ENCODER_DEFINE(js, imm20, )
 {
     return make_branch(BRANCH_JS, (uint32_t)strtoul(imm20, NULL, 0));
 }
 
-EncodedInstruction enc_jns(const char *imm20, const char *)
+ENCODER_DEFINE(jns, imm20, )
 {
     return make_branch(BRANCH_JNS, (uint32_t)strtoul(imm20, NULL, 0));
 }
 
-EncodedInstruction enc_call(const char *imm20, const char *)
+ENCODER_DEFINE(call, imm20, )
 {
     return make_branch(BRANCH_CALL, (uint32_t)strtoul(imm20, NULL, 0));
 }
 
-EncodedInstruction enc_ret(const char *imm20, const char *)
+ENCODER_DEFINE(ret, imm20, )
 {
     return make_branch(BRANCH_RET, (uint32_t)strtoul(imm20, NULL, 0));
 }
 
-EncodedInstruction enc_hlt(const char *, const char *)
+ENCODER_DEFINE(hlt, , )
 {
     return make_misc(MISC_HLT);
 }
 
-EncodedInstruction enc_nop(const char *, const char *)
+ENCODER_DEFINE(nop, , )
 {
     return make_misc(MISC_NOP);
 }
 
 InstructionHandler instruction_table[] = {
-    {"add", enc_add},
-    {"sub", enc_sub},
-    {"mul", enc_mul},
-    {"div", enc_div},
-    {"and", enc_and},
-    {"or", enc_or},
-    {"xor", enc_xor},
-    {"not", enc_not},
-    {"mov", enc_mov},
-    {"xchg", enc_xchg},
-    {"push", enc_push},
-    {"pop", enc_pop},
-    {"ldb", enc_ldb},
-    {"stb", enc_stb},
-    {"ldw", enc_ldw},
-    {"stw", enc_stw},
-    {"ldd", enc_ldd},
-    {"std", enc_std},
-    {"jmp", enc_jmp},
-    {"jc", enc_jc},
-    {"jnc", enc_jnc},
-    {"jz", enc_jz},
-    {"jnz", enc_jnz},
-    {"jo", enc_jo},
-    {"jno", enc_jno},
-    {"js", enc_js},
-    {"jns", enc_jns},
-    {"call", enc_call},
-    {"ret", enc_ret},
-    {"hlt", enc_hlt},
-    {"nop", enc_nop}
+    ENCODER_ADD(add),
+    ENCODER_ADD(sub),
+    ENCODER_ADD(mul),
+    ENCODER_ADD(div),
+    ENCODER_ADD(and),
+    ENCODER_ADD(or),
+    ENCODER_ADD(xor),
+    ENCODER_ADD(not),
+    ENCODER_ADD(mov),
+    ENCODER_ADD(xchg),
+    ENCODER_ADD(push),
+    ENCODER_ADD(pop),
+    ENCODER_ADD(ldb),
+    ENCODER_ADD(stb),
+    ENCODER_ADD(ldw),
+    ENCODER_ADD(stw),
+    ENCODER_ADD(ldd),
+    ENCODER_ADD(std),
+    ENCODER_ADD(jmp),
+    ENCODER_ADD(jc),
+    ENCODER_ADD(jnc),
+    ENCODER_ADD(jz),
+    ENCODER_ADD(jnz),
+    ENCODER_ADD(jo),
+    ENCODER_ADD(jno),
+    ENCODER_ADD(js),
+    ENCODER_ADD(jns),
+    ENCODER_ADD(call),
+    ENCODER_ADD(ret),
+    ENCODER_ADD(hlt),
+    ENCODER_ADD(nop),
 };
 const uint8_t instruction_count = sizeof(instruction_table) / sizeof(instruction_table[0]);

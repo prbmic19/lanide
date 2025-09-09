@@ -11,15 +11,6 @@ static const char *reg_names[REG_COUNT] = {
     "dip", "dstat"
 };
 
-static const char *reg_name(int index)
-{
-    if (index >= 0 && index < REG_COUNT)
-    {
-        return reg_names[index];
-    }
-    return "(bad)";
-}
-
 static void print_hex_bytes(uint8_t *mem, uint32_t addr, int length)
 {
     int max_length = 6;
@@ -91,7 +82,7 @@ int main(int argc, char **argv)
             break;
         }
 
-        printf("  %05x:   ", ip);
+        printf("%8x:   ", ip);
 
         print_hex_bytes(memory, ip, length);
         printf("   ");
@@ -107,15 +98,15 @@ int main(int argc, char **argv)
                 uint8_t rd32 = (b1 >> 4) & 0xf;
                 uint8_t rs32 = b1 & 0xf;
                 const char *mnemonics[] = {"add", "sub", "mul", "div", "and", "or", "xor", "not", "mov", "xchg", "push", "pop"};
-                if (op < 12)
+                if (op < sizeof(mnemonics) / sizeof(mnemonics[0]))
                 {
                     if (op == REGREG_NOT || op == REGREG_PUSH || op == REGREG_POP)
                     {
-                        printf("%s\t%s", mnemonics[op], reg_name(rd32));
+                        printf("%-7s %s", mnemonics[op], reg_names[rd32]);
                     }
                     else
                     {
-                        printf("%s\t%s,%s", mnemonics[op], reg_name(rd32), reg_name(rs32));
+                        printf("%-7s %s,%s", mnemonics[op], reg_names[rd32], reg_names[rs32]);
                     }
                 }
                 else
@@ -130,9 +121,9 @@ int main(int argc, char **argv)
                 uint8_t r32 = (rinfo >> 4) & 0xf;
                 uint32_t imm32 = memory[ip + 2] | (memory[ip + 3] << 8) | (memory[ip + 4] << 16) | (memory[ip + 5] << 24);
                 const char *mnemonics[] = {"add", "sub", "mul", "div", "and", "or", "xor", "mov"};
-                if (op < 9)
+                if (op < sizeof(mnemonics) / sizeof(mnemonics[0]))
                 {
-                    printf("%s\t%s,0x%x", mnemonics[op], reg_name(r32), imm32);
+                    printf("%-7s %s,0x%x", mnemonics[op], reg_names[r32], imm32);
                 }
                 else
                 {
@@ -146,15 +137,15 @@ int main(int argc, char **argv)
                 uint8_t r32 = (b1 >> 4) & 0xf;
                 uint32_t imm20 = (b1 & 0xf) | (memory[ip+2] << 4) | (memory[ip+3] << 12);
                 const char *mnemonics[] = {"ldb", "stb", "ldw", "stw", "ldd", "std"};
-                if (op < 6)
+                if (op < sizeof(mnemonics) / sizeof(mnemonics[0]))
                 {
                     if (mnemonics[op][0] == 's')
                     {
-                        printf("%s\t0x%x,%s", mnemonics[op], imm20, reg_name(r32));
+                        printf("%-7s 0x%x,%s", mnemonics[op], imm20, reg_names[r32]);
                     }
                     else
                     {
-                        printf("%s\t%s,0x%x", mnemonics[op], reg_name(r32), imm20);
+                        printf("%-7s %s,0x%x", mnemonics[op], reg_names[r32], imm20);
                     }
                 }
                 else
@@ -166,11 +157,11 @@ int main(int argc, char **argv)
             case CLASS_BRANCH:
             {
                 uint8_t b1 = memory[ip + 1];
-                uint32_t imm20 = (b1 & 0xf) | (memory[ip+2] << 4) | (memory[ip+3] << 12);
+                uint32_t imm20 = (b1 & 0xf) | (memory[ip + 2] << 4) | (memory[ip + 3] << 12);
                 const char *mnemonics[] = {"jmp", "jc", "jnc", "jz", "jnz", "jo", "jno", "js", "jns", "call", "ret"};
-                if (op < 11)
+                if (op < sizeof(mnemonics) / sizeof(mnemonics[0]))
                 {
-                    printf("%s\t0x%x", mnemonics[op], imm20);
+                    printf("%-7s 0x%x", mnemonics[op], imm20);
                 }
                 else
                 {
@@ -195,7 +186,7 @@ int main(int argc, char **argv)
                 BAD_INSTRUCTION();
         }
 
-        printf("\n");
+        putchar('\n');
         ip += length;
     }
     
