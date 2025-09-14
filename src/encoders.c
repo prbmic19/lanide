@@ -50,7 +50,7 @@ _Bool is_register(const char *operand, int *reg_idx, uint32_t *imm32)
 static EncodedInstruction make_regreg(Opcode opcode, uint8_t rd32, uint8_t rs32)
 {
     EncodedInstruction ei = { .length = 2 };
-    ei.bytes[0] = (CLASS_REGREG << 4) | (opcode & 0xf);
+    ei.bytes[0] = (IC_REGREG << 4) | (opcode & 0xf);
     ei.bytes[1] = ((rd32 & 0xf) << 4) | (rs32 & 0xf);
     return ei;
 }
@@ -58,7 +58,7 @@ static EncodedInstruction make_regreg(Opcode opcode, uint8_t rd32, uint8_t rs32)
 static EncodedInstruction make_regimm(Opcode opcode, uint8_t r32, uint32_t imm32)
 {
     EncodedInstruction ei = { .length = 6 };
-    ei.bytes[0] = (CLASS_REGIMM << 4) | (opcode & 0xf);
+    ei.bytes[0] = (IC_REGIMM << 4) | (opcode & 0xf);
     ei.bytes[1] = (r32 & 0xf) << 4; // Lower nibble reserved
     ei.bytes[2] = imm32 & 0xff;
     ei.bytes[3] = (imm32 >> 8) & 0xff;
@@ -70,7 +70,7 @@ static EncodedInstruction make_regimm(Opcode opcode, uint8_t r32, uint32_t imm32
 static EncodedInstruction make_mem(Opcode opcode, uint8_t r32, uint32_t imm20)
 {
     EncodedInstruction ei = { .length = 4 };
-    ei.bytes[0] = (CLASS_MEM << 4) | (opcode & 0xf);
+    ei.bytes[0] = (IC_MEM << 4) | (opcode & 0xf);
     ei.bytes[1] = ((r32 & 0xf) << 4) | (imm20 & 0xf); // Squeeze the two nibbles in one byte
     ei.bytes[2] = (imm20 >> 4) & 0xff;
     ei.bytes[3] = (imm20 >> 12) & 0xff;
@@ -79,18 +79,27 @@ static EncodedInstruction make_mem(Opcode opcode, uint8_t r32, uint32_t imm20)
 
 static EncodedInstruction make_branch(Opcode opcode, uint32_t imm20)
 {
-    EncodedInstruction ei = { .length = 4 };
-    ei.bytes[0] = (CLASS_BRANCH << 4) | (opcode & 0xf);
-    ei.bytes[1] = imm20 & 0xf;
-    ei.bytes[2] = (imm20 >> 4) & 0xff;
-    ei.bytes[3] = (imm20 >> 12) & 0xff;
+    EncodedInstruction ei;
+    if (opcode == BRANCH_RET)
+    {
+        ei.length = 1;
+        ei.bytes[0] = (IC_BRANCH << 4) | (BRANCH_RET & 0xf);
+    }
+    else
+    {
+        ei.length = 4;
+        ei.bytes[0] = (IC_BRANCH << 4) | (opcode & 0xf);
+        ei.bytes[1] = imm20 & 0xf;
+        ei.bytes[2] = (imm20 >> 4) & 0xff;
+        ei.bytes[3] = (imm20 >> 12) & 0xff;
+    }
     return ei;
 }
 
 static EncodedInstruction make_misc(Opcode opcode)
 {
     EncodedInstruction ei = { .length = 1 };
-    ei.bytes[0] = (CLASS_MISC << 4) | (opcode & 0xf);
+    ei.bytes[0] = (IC_MISC << 4) | (opcode & 0xf);
     return ei;
 }
 
@@ -341,6 +350,11 @@ ENCODER_DEFINE(call, imm20, )
     return make_branch(BRANCH_CALL, (uint32_t)strtoul(imm20, NULL, 0));
 }
 
+ENCODER_DEFINE(ret, , )
+{
+    return make_branch(BRANCH_RET, 0);
+}
+
 ENCODER_DEFINE(hlt, , )
 {
     return make_misc(MISC_HLT);
@@ -349,11 +363,6 @@ ENCODER_DEFINE(hlt, , )
 ENCODER_DEFINE(nop, , )
 {
     return make_misc(MISC_NOP);
-}
-
-ENCODER_DEFINE(ret, , )
-{
-    return make_misc(MISC_RET);
 }
 
 InstructionHandler instruction_table[] = {
@@ -385,8 +394,8 @@ InstructionHandler instruction_table[] = {
     ENCODER_ADD(js),
     ENCODER_ADD(jns),
     ENCODER_ADD(call),
+    ENCODER_ADD(ret),
     ENCODER_ADD(hlt),
     ENCODER_ADD(nop),
-    ENCODER_ADD(ret),
 };
 const uint8_t instruction_count = sizeof(instruction_table) / sizeof(instruction_table[0]);

@@ -204,7 +204,7 @@ int main(int argc, char **argv)
 
         switch (class)
         {
-            case CLASS_REGREG:
+            case IC_REGREG:
             {
                 uint8_t rd32 = (buffer[1] >> 4) & 0xf;
                 uint8_t rs32 = buffer[1] & 0xf;
@@ -269,7 +269,7 @@ int main(int argc, char **argv)
                 }
                 break;
             }
-            case CLASS_REGIMM:
+            case IC_REGIMM:
             {
                 uint8_t r32 = (buffer[1] >> 4) & 0xf;
                 uint32_t imm32 = buffer[2] | (buffer[3] << 8) | (buffer[4] << 16) | (buffer[5] << 24);
@@ -312,7 +312,7 @@ int main(int argc, char **argv)
                 }
                 break;
             }
-            case CLASS_MEM:
+            case IC_MEM:
             {
                 uint8_t r32 = (buffer[1] >> 4) & 0xf;
                 uint32_t imm20 = (buffer[1] & 0xf) | (buffer[2] << 4) | (buffer[3] << 12);
@@ -350,7 +350,7 @@ int main(int argc, char **argv)
                 }
                 break;
             }
-            case CLASS_BRANCH:
+            case IC_BRANCH:
             {
                 uint32_t imm20 = (buffer[1] & 0xf) | (buffer[2] << 4) | (buffer[3] << 12);
                 // We continue to avoid "dip += length;"
@@ -395,21 +395,7 @@ int main(int argc, char **argv)
                         dip = imm20;
                         continue;
                     }
-                    default:
-                        fprintf(stderr, "Illegal BRANCH opcode %x at address %x\n", op, dip);
-                        exit_code = ERR_ILLINT;
-                        goto halted;
-                }
-                break;
-            }
-            case CLASS_MISC:
-                switch (op)
-                {
-                    case MISC_HLT:
-                        goto halted;
-                    case MISC_NOP:
-                        break;
-                    case MISC_RET:
+                    case BRANCH_RET:
                     {
                         uint32_t return_address = (uint32_t)memory[dsp]
                             | ((uint32_t)memory[dsp + 1] << 8)
@@ -419,6 +405,20 @@ int main(int argc, char **argv)
                         dip = return_address;
                         continue;
                     }
+                    default:
+                        fprintf(stderr, "Illegal BRANCH opcode %x at address %x\n", op, dip);
+                        exit_code = ERR_ILLINT;
+                        goto halted;
+                }
+                break;
+            }
+            case IC_MISC:
+                switch (op)
+                {
+                    case MISC_HLT:
+                        goto halted;
+                    case MISC_NOP:
+                        break;
                     default:
                         fprintf(stderr, "Illegal MISC opcode 0x%x at address 0x%x\n", op, dip);
                         exit_code = ERR_ILLINT;

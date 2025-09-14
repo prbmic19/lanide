@@ -92,7 +92,7 @@ int main(int argc, char **argv)
 
         switch (class)
         {
-            case CLASS_REGREG:
+            case IC_REGREG:
             {
                 uint8_t b1 = memory[ip + 1];
                 uint8_t rd32 = (b1 >> 4) & 0xf;
@@ -115,7 +115,7 @@ int main(int argc, char **argv)
                 }
                 break;
             }
-            case CLASS_REGIMM:
+            case IC_REGIMM:
             {
                 uint8_t rinfo = memory[ip + 1];
                 uint8_t r32 = (rinfo >> 4) & 0xf;
@@ -131,7 +131,7 @@ int main(int argc, char **argv)
                 }
                 break;
             }
-            case CLASS_MEM:
+            case IC_MEM:
             {
                 uint8_t b1 = memory[ip + 1];
                 uint8_t r32 = (b1 >> 4) & 0xf;
@@ -154,14 +154,21 @@ int main(int argc, char **argv)
                 }
                 break;
             }
-            case CLASS_BRANCH:
+            case IC_BRANCH:
             {
                 uint8_t b1 = memory[ip + 1];
                 uint32_t imm20 = (b1 & 0xf) | (memory[ip + 2] << 4) | (memory[ip + 3] << 12);
-                const char *mnemonics[] = {"jmp", "jc", "jnc", "jz", "jnz", "jo", "jno", "js", "jns", "call"};
+                const char *mnemonics[] = {"jmp", "jc", "jnc", "jz", "jnz", "jo", "jno", "js", "jns", "call", "ret"};
                 if (op < sizeof(mnemonics) / sizeof(mnemonics[0]))
                 {
-                    printf("%-7s 0x%x", mnemonics[op], imm20);
+                    if (op == BRANCH_RET)
+                    {
+                        printf("ret");
+                    }
+                    else
+                    {
+                        printf("%-7s 0x%x", mnemonics[op], imm20);
+                    }
                 }
                 else
                 {
@@ -169,7 +176,7 @@ int main(int argc, char **argv)
                 }
                 break;
             }
-            case CLASS_MISC:
+            case IC_MISC:
                 switch (op)
                 {
                     case MISC_HLT:
@@ -177,9 +184,6 @@ int main(int argc, char **argv)
                         break;
                     case MISC_NOP:
                         printf("nop");
-                        break;
-                    case MISC_RET:
-                        printf("ret");
                         break;
                     default:
                         BAD_INSTRUCTION();

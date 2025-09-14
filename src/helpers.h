@@ -37,11 +37,11 @@ typedef struct
 // 16 possible classes
 typedef enum
 {
-    CLASS_REGREG,
-    CLASS_REGIMM,
-    CLASS_MEM,
-    CLASS_BRANCH,
-    CLASS_MISC = 0xf
+    IC_REGREG,
+    IC_REGIMM,
+    IC_MEM,
+    IC_BRANCH,
+    IC_MISC = 0xf
 } InstructionClass;
 
 // 16 instructions per class
@@ -87,25 +87,25 @@ typedef enum
     BRANCH_JS,
     BRANCH_JNS,
     BRANCH_CALL,
+    BRANCH_RET,
 
     MISC_HLT = 0,
-    MISC_NOP,
-    MISC_RET
+    MISC_NOP
 } Opcode;
 
 static inline int get_length(uint8_t opcode)
 {
     switch (opcode >> 4)
     {
-        case CLASS_REGREG:
+        case IC_REGREG:
             return 2;
-        case CLASS_REGIMM:
+        case IC_REGIMM:
             return 6;
-        case CLASS_MEM:
+        case IC_MEM:
             return 4;
-        case CLASS_BRANCH:
-            return 4;
-        case CLASS_MISC:
+        case IC_BRANCH:
+            return ((opcode & 0xf) == BRANCH_RET) ? 1 : 4; //  Exception for RET
+        case IC_MISC:
             return 1; // For now
         default:
             return 1;
