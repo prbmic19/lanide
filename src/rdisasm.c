@@ -76,14 +76,13 @@ int main(int argc, char **argv)
     while (ip < end)
     {
         uint8_t opcode = memory[ip];
-        int length = get_length(opcode);
-        if (length <= 0 || ip + length > end)
+        int length = get_length(opcode, memory[ip + 1]);
+        if (ip + length > end)
         {
             break;
         }
 
         printf("%8x:   ", ip);
-
         print_hex_bytes(memory, ip, length);
         printf("   ");
 
@@ -119,11 +118,25 @@ int main(int argc, char **argv)
             {
                 uint8_t rinfo = memory[ip + 1];
                 uint8_t r32 = (rinfo >> 4) & 0xf;
-                uint32_t imm32 = memory[ip + 2] | (memory[ip + 3] << 8) | (memory[ip + 4] << 16) | (memory[ip + 5] << 24);
+                uint8_t immsize = rinfo & 0xf;
+                uint32_t raw32 = memory[ip + 2] | (memory[ip + 3] << 8) | (memory[ip + 4] << 16) | (memory[ip + 5] << 24);
+                uint32_t imm = (immsize == 0)
+                    ? raw32 & 0xff
+                    : (immsize == 1)
+                    ? raw32 & 0xffff
+                    : raw32;
+
+                // Values 4..15 are reserved
+                if (immsize > 3)
+                {
+                    BAD_INSTRUCTION();
+                    break;
+                }
+
                 const char *mnemonics[] = {"add", "sub", "mul", "div", "and", "or", "xor", "mov"};
                 if (op < sizeof(mnemonics) / sizeof(mnemonics[0]))
                 {
-                    printf("%-7s %s,0x%x", mnemonics[op], reg_names[r32], imm32);
+                    printf("%-7s %s,0x%x", mnemonics[op], reg_names[r32], imm);
                 }
                 else
                 {

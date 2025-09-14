@@ -195,7 +195,7 @@ int main(int argc, char **argv)
         }
 
         uint8_t opcode = memory[dip];
-        int length = get_length(opcode);
+        int length = get_length(opcode, memory[dip + 1]);
         uint8_t buffer[8] = {0};
         memcpy(buffer, memory + dip, length);
 
@@ -206,7 +206,7 @@ int main(int argc, char **argv)
         {
             case IC_REGREG:
             {
-                uint8_t rd32 = (buffer[1] >> 4) & 0xf;
+                uint8_t rd32 = buffer[1] >> 4;
                 uint8_t rs32 = buffer[1] & 0xf;
                 switch (op)
                 {
@@ -271,39 +271,54 @@ int main(int argc, char **argv)
             }
             case IC_REGIMM:
             {
-                uint8_t r32 = (buffer[1] >> 4) & 0xf;
-                uint32_t imm32 = buffer[2] | (buffer[3] << 8) | (buffer[4] << 16) | (buffer[5] << 24);
+                uint8_t r32 = buffer[1] >> 4;
+                uint8_t immsize = buffer[1] & 0xf;
+                uint32_t raw32 = buffer[2] | (buffer[3] << 8) | (buffer[4] << 16) | (buffer[5] << 24);
+                int32_t imm = (int32_t)((immsize == 0)
+                    ? raw32 & 0xff
+                    : (immsize == 1)
+                    ? raw32 & 0xffff
+                    : raw32);
+                
+                // Values 4..15 are reserved
+                if (immsize > 3)
+                {
+                    fprintf(stderr, "Illegal REGIMM opcode: invalid immsize %u at address 0x%x\n", immsize, dip);
+                    exit_code = ERR_ILLINT;
+                    goto halted;
+                }
+
                 switch (op)
                 {
                     case REGIMM_ADD:
-                        alu_execute(registers, ALU_ADD, r32, (int32_t)imm32);
+                        alu_execute(registers, ALU_ADD, r32, imm);
                         break;
                     case REGIMM_SUB:
-                        alu_execute(registers, ALU_SUB, r32, (int32_t)imm32);
+                        alu_execute(registers, ALU_SUB, r32, imm);
                         break;
                     case REGIMM_MUL:
-                        alu_execute(registers, ALU_MUL, r32, (int32_t)imm32);
+                        alu_execute(registers, ALU_MUL, r32, imm);
                         break;
                     case REGIMM_DIV:
-                        if (imm32 == 0)
+                        if (imm == 0)
                         {
                             fprintf(stderr, "Illegal DIV instruction: divide-by-zero at address 0x%x\n", dip);
                             exit_code = ERR_ILLINT;
                             goto halted;
                         }
-                        alu_execute(registers, ALU_DIV, r32, (int32_t)imm32);
+                        alu_execute(registers, ALU_DIV, r32, imm);
                         break;
                     case REGIMM_AND:
-                        alu_execute(registers, ALU_AND, r32, (int32_t)imm32);
+                        alu_execute(registers, ALU_AND, r32, imm);
                         break;
                     case REGIMM_OR:
-                        alu_execute(registers, ALU_OR, r32, (int32_t)imm32);
+                        alu_execute(registers, ALU_OR, r32, imm);
                         break;
                     case REGIMM_XOR:
-                        alu_execute(registers, ALU_XOR, r32, (int32_t)imm32);
+                        alu_execute(registers, ALU_XOR, r32, imm);
                         break;
                     case REGIMM_MOV:
-                        registers[r32] = imm32;
+                        registers[r32] = imm;
                         break;
                     default:
                         fprintf(stderr, "Illegal REGIMM opcode 0x%x at address 0x%x\n", op, dip);
@@ -314,7 +329,7 @@ int main(int argc, char **argv)
             }
             case IC_MEM:
             {
-                uint8_t r32 = (buffer[1] >> 4) & 0xf;
+                uint8_t r32 = buffer[1] >> 4;
                 uint32_t imm20 = (buffer[1] & 0xf) | (buffer[2] << 4) | (buffer[3] << 12);
                 switch (op)
                 {

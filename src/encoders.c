@@ -55,15 +55,34 @@ static EncodedInstruction make_regreg(Opcode opcode, uint8_t rd32, uint8_t rs32)
     return ei;
 }
 
-static EncodedInstruction make_regimm(Opcode opcode, uint8_t r32, uint32_t imm32)
+// We TRUST that we pass the correct argument for immsize
+static EncodedInstruction make_regimm(Opcode opcode, uint8_t r32, uint32_t imm, uint8_t immsize)
 {
-    EncodedInstruction ei = { .length = 6 };
+    EncodedInstruction ei;
     ei.bytes[0] = (IC_REGIMM << 4) | (opcode & 0xf);
-    ei.bytes[1] = (r32 & 0xf) << 4; // Lower nibble reserved
-    ei.bytes[2] = imm32 & 0xff;
-    ei.bytes[3] = (imm32 >> 8) & 0xff;
-    ei.bytes[4] = (imm32 >> 16) & 0xff;
-    ei.bytes[5] = (imm32 >> 24) & 0xff;
+    ei.bytes[1] = ((r32 & 0xf) << 4) | (immsize & 0xf); // Lower nibble reserved
+    switch (immsize)
+    {
+        case 0:
+            ei.length = 3;
+            ei.bytes[2] = imm & 0xff;
+            break;
+        case 1:
+            ei.length = 4;
+            ei.bytes[2] = imm & 0xff;
+            ei.bytes[3] = (imm >> 8) & 0xff;
+            break;
+        case 2:
+            ei.length = 6;
+            ei.bytes[2] = imm & 0xff;
+            ei.bytes[3] = (imm >> 8) & 0xff;
+            ei.bytes[4] = (imm >> 16) & 0xff;
+            ei.bytes[5] = (imm >> 24) & 0xff;
+            break;
+        default:
+            fprintf(stderr, "Invalid immsize: %u\n", immsize);
+            exit(ERR_MALFORMED);
+    }
     return ei;
 }
 
@@ -107,15 +126,20 @@ ENCODER_DEFINE(add, rd32, src)
 {
     int r1 = reg_index(rd32);
     int r2;
-    uint32_t imm32;
+    uint32_t imm;
     
-    if (is_register(src, &r2, &imm32))
+    if (is_register(src, &r2, &imm))
     {
         return make_regreg(REGREG_ADD, r1, r2);
     }
     else
     {
-        return make_regimm(REGIMM_ADD, r1, imm32);
+        uint8_t immsize = (imm < 0x100)
+            ? 0
+            : (imm < 0x10000)
+            ? 1
+            : 2;
+        return make_regimm(REGIMM_ADD, r1, imm, immsize);
     }
 }
 
@@ -123,15 +147,20 @@ ENCODER_DEFINE(sub, rd32, src)
 {
     int r1 = reg_index(rd32);
     int r2;
-    uint32_t imm32;
+    uint32_t imm;
     
-    if (is_register(src, &r2, &imm32))
+    if (is_register(src, &r2, &imm))
     {
         return make_regreg(REGREG_SUB, r1, r2);
     }
     else
     {
-        return make_regimm(REGIMM_SUB, r1, imm32);
+        uint8_t immsize = (imm < 0x100)
+            ? 0
+            : (imm < 0x10000)
+            ? 1
+            : 2;
+        return make_regimm(REGIMM_SUB, r1, imm, immsize);
     }
 }
 
@@ -139,15 +168,20 @@ ENCODER_DEFINE(mul, rd32, src)
 {
     int r1 = reg_index(rd32);
     int r2;
-    uint32_t imm32;
+    uint32_t imm;
     
-    if (is_register(src, &r2, &imm32))
+    if (is_register(src, &r2, &imm))
     {
         return make_regreg(REGREG_MUL, r1, r2);
     }
     else
     {
-        return make_regimm(REGIMM_MUL, r1, imm32);
+        uint8_t immsize = (imm < 0x100)
+            ? 0
+            : (imm < 0x10000)
+            ? 1
+            : 2;
+        return make_regimm(REGIMM_MUL, r1, imm, immsize);
     }
 }
 
@@ -155,15 +189,20 @@ ENCODER_DEFINE(div, rd32, src)
 {
     int r1 = reg_index(rd32);
     int r2;
-    uint32_t imm32;
+    uint32_t imm;
     
-    if (is_register(src, &r2, &imm32))
+    if (is_register(src, &r2, &imm))
     {
         return make_regreg(REGREG_DIV, r1, r2);
     }
     else
     {
-        return make_regimm(REGIMM_DIV, r1, imm32);
+        uint8_t immsize = (imm < 0x100)
+            ? 0
+            : (imm < 0x10000)
+            ? 1
+            : 2;
+        return make_regimm(REGIMM_DIV, r1, imm, immsize);
     }
 }
 
@@ -171,15 +210,20 @@ ENCODER_DEFINE(and, rd32, src)
 {
     int r1 = reg_index(rd32);
     int r2;
-    uint32_t imm32;
+    uint32_t imm;
     
-    if (is_register(src, &r2, &imm32))
+    if (is_register(src, &r2, &imm))
     {
         return make_regreg(REGREG_AND, r1, r2);
     }
     else
     {
-        return make_regimm(REGIMM_AND, r1, imm32);
+        uint8_t immsize = (imm < 0x100)
+            ? 0
+            : (imm < 0x10000)
+            ? 1
+            : 2;
+        return make_regimm(REGIMM_AND, r1, imm, immsize);
     }
 }
 
@@ -187,15 +231,20 @@ ENCODER_DEFINE(or, rd32, src)
 {
     int r1 = reg_index(rd32);
     int r2;
-    uint32_t imm32;
+    uint32_t imm;
     
-    if (is_register(src, &r2, &imm32))
+    if (is_register(src, &r2, &imm))
     {
         return make_regreg(REGREG_OR, r1, r2);
     }
     else
     {
-        return make_regimm(REGIMM_OR, r1, imm32);
+        uint8_t immsize = (imm < 0x100)
+            ? 0
+            : (imm < 0x10000)
+            ? 1
+            : 2;
+        return make_regimm(REGIMM_OR, r1, imm, immsize);
     }
 }
 
@@ -203,15 +252,20 @@ ENCODER_DEFINE(xor, rd32, src)
 {
     int r1 = reg_index(rd32);
     int r2;
-    uint32_t imm32;
+    uint32_t imm;
     
-    if (is_register(src, &r2, &imm32))
+    if (is_register(src, &r2, &imm))
     {
         return make_regreg(REGREG_XOR, r1, r2);
     }
     else
     {
-        return make_regimm(REGIMM_XOR, r1, imm32);
+        uint8_t immsize = (imm < 0x100)
+            ? 0
+            : (imm < 0x10000)
+            ? 1
+            : 2;
+        return make_regimm(REGIMM_XOR, r1, imm, immsize);
     }
 }
 
@@ -225,15 +279,20 @@ ENCODER_DEFINE(mov, rd32, src)
 {
     int r1 = reg_index(rd32);
     int r2;
-    uint32_t imm32;
+    uint32_t imm;
     
-    if (is_register(src, &r2, &imm32))
+    if (is_register(src, &r2, &imm))
     {
         return make_regreg(REGREG_MOV, r1, r2);
     }
     else
     {
-        return make_regimm(REGIMM_MOV, r1, imm32);
+        uint8_t immsize = (imm < 0x100)
+            ? 0
+            : (imm < 0x10000)
+            ? 1
+            : 2;
+        return make_regimm(REGIMM_MOV, r1, imm, immsize);
     }
 }
 

@@ -93,18 +93,22 @@ typedef enum
     MISC_NOP
 } Opcode;
 
-static inline int get_length(uint8_t opcode)
+static inline int get_length(uint8_t opcode, uint8_t byte2)
 {
     switch (opcode >> 4)
     {
         case IC_REGREG:
             return 2;
         case IC_REGIMM:
-            return 6;
+            return ((byte2 & 0xf) == 0)
+                ? 3
+                : ((byte2 & 0xf) == 1)
+                ? 4
+                : 6;
         case IC_MEM:
             return 4;
         case IC_BRANCH:
-            return ((opcode & 0xf) == BRANCH_RET) ? 1 : 4; //  Exception for RET
+            return ((opcode & 0xf) == BRANCH_RET) ? 1 : 4; // Exception for RET
         case IC_MISC:
             return 1; // For now
         default:
