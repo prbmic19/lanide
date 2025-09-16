@@ -4,8 +4,6 @@
 > [!WARNING]
 > This is still incomplete/experimental. Expect jank.
 
-<br>
-
 Lanide Robust Extended (**RX**) is the 32-bit extension of my original 16-bit Lanide Robust Native ISA. 
 It comes with everything you need to mess around with RX programs, from writing code to running and inspecting binaries.
 
