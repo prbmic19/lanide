@@ -6,8 +6,9 @@
 #include <string.h>
 #include <stdint.h>
 
-#define MAGIC_BYTES_SIZE 6
-static const uint8_t magic_bytes[MAGIC_BYTES_SIZE] = {'\x7f', '\x00', 'W', 'O', 'O', 'F'};
+#define MAGIC_BYTES_SIZE 8
+// RObust BINary
+static const uint8_t magic_bytes[MAGIC_BYTES_SIZE] = {'\x7f', '\x00', '\x00', 'R', 'O', 'B', 'I', 'N'};
 
 #define MEM_SIZE    0x100000            // 1 MiB unified memory
 #define TEXT_BASE   (MEM_SIZE / 8)      // 12.5% into memory
