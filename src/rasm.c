@@ -29,7 +29,7 @@ int main(int argc, char **argv)
 
     fwrite(magic_bytes, MAGIC_BYTES_SIZE, 1, fout);
 
-    char line[256];
+    char line[256] = {0};
     while (fgets(line, sizeof(line), fin))
     {
         if (line[0] == ';' || line[0] == '\n')
@@ -37,10 +37,10 @@ int main(int argc, char **argv)
             continue;
         }
 
-        char mnemonic[32];
-        char operand1[32];
-        char operand2[32];
-        EncodedInstruction ei = { 0 };
+        char mnemonic[32] = {0};
+        char operand1[32] = {0};
+        char operand2[32] = {0};
+        EncodedInstruction ei = {0};
         _Bool found = 0;
         int n = sscanf(line, "%31s %31[^,], %31s", mnemonic, operand1, operand2);
 
@@ -55,6 +55,7 @@ int main(int argc, char **argv)
             return ERR_ILLINT;
         }
 
+        // Fine for now, but this will get inefficient pretty quickly as the instruction set grows.
         for (uint8_t i = 0; i < instruction_count; i++)
         {
             if (strcmp(mnemonic, instruction_table[i].mnemonic) == 0)
@@ -65,10 +66,28 @@ int main(int argc, char **argv)
             }
         }
 
-        if (strcmp(mnemonic, "db") == 0)
+        if (strcmp(mnemonic, ".byte") == 0)
         {
             ei.length = 1;
-            ei.bytes[0] = (uint8_t)strtol(operand1, NULL, 0);
+            ei.bytes[0] = strtol(operand1, NULL, 0) & 0xff;
+            found = 1;
+        }
+
+        if (strcmp(mnemonic, ".word") == 0)
+        {
+            ei.length = 2;
+            ei.bytes[0] = strtol(operand1, NULL, 0) & 0xff;
+            ei.bytes[1] = (strtol(operand1, NULL, 0) >> 8) & 0xff;
+            found = 1;
+        }
+
+        if (strcmp(mnemonic, ".dword") == 0)
+        {
+            ei.length = 2;
+            ei.bytes[0] = strtol(operand1, NULL, 0) & 0xff;
+            ei.bytes[1] = (strtol(operand1, NULL, 0) >> 8) & 0xff;
+            ei.bytes[2] = (strtol(operand1, NULL, 0) >> 16) & 0xff;
+            ei.bytes[3] = (strtol(operand1, NULL, 0) >> 24) & 0xff;
             found = 1;
         }
 

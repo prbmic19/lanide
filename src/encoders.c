@@ -60,7 +60,7 @@ static EncodedInstruction make_regimm(Opcode opcode, uint8_t r32, uint32_t imm, 
 {
     EncodedInstruction ei;
     ei.bytes[0] = (IC_REGIMM << 4) | (opcode & 0xf);
-    ei.bytes[1] = ((r32 & 0xf) << 4) | (immsize & 0xf); // Lower nibble reserved
+    ei.bytes[1] = ((r32 & 0xf) << 4) | (immsize & 0xf);
     switch (immsize)
     {
         case 0:
