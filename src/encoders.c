@@ -90,7 +90,7 @@ static EncodedInstruction make_mem(Opcode opcode, uint8_t r32, uint32_t imm20)
 {
     EncodedInstruction ei = { .length = 4 };
     ei.bytes[0] = (IC_MEM << 4) | (opcode & 0xf);
-    ei.bytes[1] = ((r32 & 0xf) << 4) | (imm20 & 0xf); // Squeeze the two nibbles in one byte
+    ei.bytes[1] = ((r32 & 0xf) << 4) | (imm20 & 0xf);
     ei.bytes[2] = (imm20 >> 4) & 0xff;
     ei.bytes[3] = (imm20 >> 12) & 0xff;
     return ei;
@@ -308,12 +308,14 @@ ENCODER_DEFINE(xchg, rd32, rs32)
 ENCODER_DEFINE(push, r32, )
 {
     int r = reg_index(r32);
+    _VALIDATE_REG_INDEX(r, r32);
     return make_regreg(REGREG_PUSH, r, 0);
 }
 
 ENCODER_DEFINE(pop, r32, )
 {
     int r = reg_index(r32);
+    _VALIDATE_REG_INDEX(r, r32);
     return make_regreg(REGREG_POP, r, 0);
 }
 
