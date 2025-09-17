@@ -53,7 +53,7 @@ int main(int argc, char **argv)
         return ERR_MALFORMED;
     }
 
-    uint8_t *memory = (uint8_t *)calloc(MEM_SIZE, 1);
+    uint8_t *memory = (uint8_t *)malloc(MEM_SIZE);
     if (!memory)
     {
         perror("calloc");
@@ -99,7 +99,7 @@ int main(int argc, char **argv)
                 const char *mnemonics[] = {"add", "sub", "mul", "div", "and", "or", "xor", "not", "mov", "xchg", "push", "pop"};
                 if (op < sizeof(mnemonics) / sizeof(mnemonics[0]))
                 {
-                    if (op == REGREG_NOT || op == REGREG_PUSH || op == REGREG_POP)
+                    if (op == OC_REGREG_NOT || op == OC_REGREG_PUSH || op == OC_REGREG_POP)
                     {
                         printf("%-7s %s", mnemonics[op], reg_names[rd32]);
                     }
@@ -174,7 +174,7 @@ int main(int argc, char **argv)
                 const char *mnemonics[] = {"jmp", "jc", "jnc", "jz", "jnz", "jo", "jno", "js", "jns", "call", "ret"};
                 if (op < sizeof(mnemonics) / sizeof(mnemonics[0]))
                 {
-                    if (op == BRANCH_RET)
+                    if (op == OC_BRANCH_RET)
                     {
                         printf("ret");
                     }
@@ -192,10 +192,10 @@ int main(int argc, char **argv)
             case IC_MISC:
                 switch (op)
                 {
-                    case MISC_HLT:
+                    case OC_MISC_HLT:
                         printf("hlt");
                         break;
-                    case MISC_NOP:
+                    case OC_MISC_NOP:
                         printf("nop");
                         break;
                     default:

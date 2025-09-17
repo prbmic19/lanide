@@ -2,7 +2,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-red.svg)](LICENSE)
 
 > [!WARNING]
-> This is still incomplete/experimental. Expect jank.
+> This is still incomplete/experimental, and everything is subject to change. Expect jank.
 
 Lanide Robust Extended (**RX**) is the 32-bit extension of my original 16-bit Lanide Robust Native ISA. 
 It comes with everything you need to mess around with RX programs, from writing code to running and inspecting binaries.
@@ -48,7 +48,7 @@ make clean
 ```
 
 ## Example
-Here's a tiny RX program, taken from `examples/addition.asm`.
+Here's a tiny RX program taken from `examples/addition.asm`.
 It adds two numbers and halts. (nothing fancy, but it shows the basics):
 ```asm
 ; examples/addition.asm
@@ -89,7 +89,7 @@ RX pulls inspiration from a bunch of places:
 Big thanks to the open-source community in general—staring at other people's assemblers and emulators taught me a lot.
 
 ## Future Plans
-This is just a playground for now, but here's what I'd like to take it:
+This is just a playground for now, but here's where I'd like to take it:
 - More instructions
 - Better error messages
 - A ~~toy~~ compiler that targets RX

@@ -1,7 +1,7 @@
 #include "helpers.h"
 #include "encoders.h"
 
-#define ENCODER_DEFINE(mnemonic, operand1, operand2) EncodedInstruction enc_##mnemonic(const char *operand1, const char *operand2)
+#define ENCODER_DEFINE(mnemonic, operand1, operand2) encoded_instruction_td enc_##mnemonic(const char *operand1, const char *operand2)
 #define ENCODER_ADD(mnemonic) {#mnemonic, enc_##mnemonic}
 
 #define REG_COUNT 18
@@ -25,13 +25,13 @@ int reg_index(const char *reg)
     return -1;
 }
 
-_Bool is_register(const char *operand, int *reg_idx, uint32_t *imm32)
+bool is_register(const char *operand, int *reg_idx, uint32_t *imm32)
 {
     int index = reg_index(operand);
     if (index != -1)
     {
         *reg_idx = index;
-        return 1;
+        return true;
     }
 
     char *endptr;
@@ -40,25 +40,25 @@ _Bool is_register(const char *operand, int *reg_idx, uint32_t *imm32)
     if (*endptr == '\0')
     {
         *imm32 = imm;
-        return 0;
+        return false;
     }
 
     fprintf(stderr, "Invalid operand: %s\n", operand);
     exit(ERR_MALFORMED);
 }
 
-static EncodedInstruction make_regreg(Opcode opcode, uint8_t rd32, uint8_t rs32)
+static encoded_instruction_td make_regreg(opcode_td opcode, uint8_t rd32, uint8_t rs32)
 {
-    EncodedInstruction ei = { .length = 2 };
+    encoded_instruction_td ei = { .length = 2 };
     ei.bytes[0] = (IC_REGREG << 4) | (opcode & 0xf);
     ei.bytes[1] = ((rd32 & 0xf) << 4) | (rs32 & 0xf);
     return ei;
 }
 
 // We TRUST that we pass the correct argument for immsize
-static EncodedInstruction make_regimm(Opcode opcode, uint8_t r32, uint32_t imm, uint8_t immsize)
+static encoded_instruction_td make_regimm(opcode_td opcode, uint8_t r32, uint32_t imm, uint8_t immsize)
 {
-    EncodedInstruction ei;
+    encoded_instruction_td ei;
     ei.bytes[0] = (IC_REGIMM << 4) | (opcode & 0xf);
     ei.bytes[1] = ((r32 & 0xf) << 4) | (immsize & 0xf);
     switch (immsize)
@@ -86,9 +86,9 @@ static EncodedInstruction make_regimm(Opcode opcode, uint8_t r32, uint32_t imm, 
     return ei;
 }
 
-static EncodedInstruction make_mem(Opcode opcode, uint8_t r32, uint32_t imm20)
+static encoded_instruction_td make_mem(opcode_td opcode, uint8_t r32, uint32_t imm20)
 {
-    EncodedInstruction ei = { .length = 4 };
+    encoded_instruction_td ei = { .length = 4 };
     ei.bytes[0] = (IC_MEM << 4) | (opcode & 0xf);
     ei.bytes[1] = ((r32 & 0xf) << 4) | (imm20 & 0xf);
     ei.bytes[2] = (imm20 >> 4) & 0xff;
@@ -96,13 +96,13 @@ static EncodedInstruction make_mem(Opcode opcode, uint8_t r32, uint32_t imm20)
     return ei;
 }
 
-static EncodedInstruction make_branch(Opcode opcode, uint32_t imm20)
+static encoded_instruction_td make_branch(opcode_td opcode, uint32_t imm20)
 {
-    EncodedInstruction ei;
-    if (opcode == BRANCH_RET)
+    encoded_instruction_td ei;
+    if (opcode == OC_BRANCH_RET)
     {
         ei.length = 1;
-        ei.bytes[0] = (IC_BRANCH << 4) | (BRANCH_RET & 0xf);
+        ei.bytes[0] = (IC_BRANCH << 4) | (OC_BRANCH_RET & 0xf);
     }
     else
     {
@@ -115,9 +115,9 @@ static EncodedInstruction make_branch(Opcode opcode, uint32_t imm20)
     return ei;
 }
 
-static EncodedInstruction make_misc(Opcode opcode)
+static encoded_instruction_td make_misc(opcode_td opcode)
 {
-    EncodedInstruction ei = { .length = 1 };
+    encoded_instruction_td ei = { .length = 1 };
     ei.bytes[0] = (IC_MISC << 4) | (opcode & 0xf);
     return ei;
 }
@@ -130,7 +130,7 @@ ENCODER_DEFINE(add, rd32, src)
     
     if (is_register(src, &r2, &imm))
     {
-        return make_regreg(REGREG_ADD, r1, r2);
+        return make_regreg(OC_REGREG_ADD, r1, r2);
     }
     else
     {
@@ -139,7 +139,7 @@ ENCODER_DEFINE(add, rd32, src)
             : (imm < 0x10000)
             ? 1
             : 2;
-        return make_regimm(REGIMM_ADD, r1, imm, immsize);
+        return make_regimm(OC_REGIMM_ADD, r1, imm, immsize);
     }
 }
 
@@ -151,7 +151,7 @@ ENCODER_DEFINE(sub, rd32, src)
     
     if (is_register(src, &r2, &imm))
     {
-        return make_regreg(REGREG_SUB, r1, r2);
+        return make_regreg(OC_REGREG_SUB, r1, r2);
     }
     else
     {
@@ -160,7 +160,7 @@ ENCODER_DEFINE(sub, rd32, src)
             : (imm < 0x10000)
             ? 1
             : 2;
-        return make_regimm(REGIMM_SUB, r1, imm, immsize);
+        return make_regimm(OC_REGIMM_SUB, r1, imm, immsize);
     }
 }
 
@@ -172,7 +172,7 @@ ENCODER_DEFINE(mul, rd32, src)
     
     if (is_register(src, &r2, &imm))
     {
-        return make_regreg(REGREG_MUL, r1, r2);
+        return make_regreg(OC_REGREG_MUL, r1, r2);
     }
     else
     {
@@ -181,7 +181,7 @@ ENCODER_DEFINE(mul, rd32, src)
             : (imm < 0x10000)
             ? 1
             : 2;
-        return make_regimm(REGIMM_MUL, r1, imm, immsize);
+        return make_regimm(OC_REGIMM_MUL, r1, imm, immsize);
     }
 }
 
@@ -193,7 +193,7 @@ ENCODER_DEFINE(div, rd32, src)
     
     if (is_register(src, &r2, &imm))
     {
-        return make_regreg(REGREG_DIV, r1, r2);
+        return make_regreg(OC_REGREG_DIV, r1, r2);
     }
     else
     {
@@ -202,7 +202,7 @@ ENCODER_DEFINE(div, rd32, src)
             : (imm < 0x10000)
             ? 1
             : 2;
-        return make_regimm(REGIMM_DIV, r1, imm, immsize);
+        return make_regimm(OC_REGIMM_DIV, r1, imm, immsize);
     }
 }
 
@@ -214,7 +214,7 @@ ENCODER_DEFINE(and, rd32, src)
     
     if (is_register(src, &r2, &imm))
     {
-        return make_regreg(REGREG_AND, r1, r2);
+        return make_regreg(OC_REGREG_AND, r1, r2);
     }
     else
     {
@@ -223,7 +223,7 @@ ENCODER_DEFINE(and, rd32, src)
             : (imm < 0x10000)
             ? 1
             : 2;
-        return make_regimm(REGIMM_AND, r1, imm, immsize);
+        return make_regimm(OC_REGIMM_AND, r1, imm, immsize);
     }
 }
 
@@ -235,7 +235,7 @@ ENCODER_DEFINE(or, rd32, src)
     
     if (is_register(src, &r2, &imm))
     {
-        return make_regreg(REGREG_OR, r1, r2);
+        return make_regreg(OC_REGREG_OR, r1, r2);
     }
     else
     {
@@ -244,7 +244,7 @@ ENCODER_DEFINE(or, rd32, src)
             : (imm < 0x10000)
             ? 1
             : 2;
-        return make_regimm(REGIMM_OR, r1, imm, immsize);
+        return make_regimm(OC_REGIMM_OR, r1, imm, immsize);
     }
 }
 
@@ -256,7 +256,7 @@ ENCODER_DEFINE(xor, rd32, src)
     
     if (is_register(src, &r2, &imm))
     {
-        return make_regreg(REGREG_XOR, r1, r2);
+        return make_regreg(OC_REGREG_XOR, r1, r2);
     }
     else
     {
@@ -265,14 +265,14 @@ ENCODER_DEFINE(xor, rd32, src)
             : (imm < 0x10000)
             ? 1
             : 2;
-        return make_regimm(REGIMM_XOR, r1, imm, immsize);
+        return make_regimm(OC_REGIMM_XOR, r1, imm, immsize);
     }
 }
 
 ENCODER_DEFINE(not, r32, )
 {
     int r = reg_index(r32);
-    return make_regreg(REGREG_NOT, r, 0);
+    return make_regreg(OC_REGREG_NOT, r, 0);
 }
 
 ENCODER_DEFINE(mov, rd32, src)
@@ -283,7 +283,7 @@ ENCODER_DEFINE(mov, rd32, src)
     
     if (is_register(src, &r2, &imm))
     {
-        return make_regreg(REGREG_MOV, r1, r2);
+        return make_regreg(OC_REGREG_MOV, r1, r2);
     }
     else
     {
@@ -292,7 +292,7 @@ ENCODER_DEFINE(mov, rd32, src)
             : (imm < 0x10000)
             ? 1
             : 2;
-        return make_regimm(REGIMM_MOV, r1, imm, immsize);
+        return make_regimm(OC_REGIMM_MOV, r1, imm, immsize);
     }
 }
 
@@ -302,131 +302,131 @@ ENCODER_DEFINE(xchg, rd32, rs32)
     int r2 = reg_index(rs32);
     _VALIDATE_REG_INDEX(r1, rd32);
     _VALIDATE_REG_INDEX(r2, rs32);
-    return make_regreg(REGREG_XCHG, r1, r2);
+    return make_regreg(OC_REGREG_XCHG, r1, r2);
 }
 
 ENCODER_DEFINE(push, r32, )
 {
     int r = reg_index(r32);
     _VALIDATE_REG_INDEX(r, r32);
-    return make_regreg(REGREG_PUSH, r, 0);
+    return make_regreg(OC_REGREG_PUSH, r, 0);
 }
 
 ENCODER_DEFINE(pop, r32, )
 {
     int r = reg_index(r32);
     _VALIDATE_REG_INDEX(r, r32);
-    return make_regreg(REGREG_POP, r, 0);
+    return make_regreg(OC_REGREG_POP, r, 0);
 }
 
 ENCODER_DEFINE(ldb, r32, imm20)
 {
     int r = reg_index(r32);
     _VALIDATE_REG_INDEX(r, r32);
-    return make_mem(MEM_LDB, r, (uint32_t)strtoul(imm20, NULL, 0));
+    return make_mem(OC_MEM_LDB, r, (uint32_t)strtoul(imm20, NULL, 0));
 }
 
 ENCODER_DEFINE(stb, imm20, r32)
 {
     int r = reg_index(r32);
     _VALIDATE_REG_INDEX(r, r32);
-    return make_mem(MEM_STB, r, (uint32_t)strtoul(imm20, NULL, 0));
+    return make_mem(OC_MEM_STB, r, (uint32_t)strtoul(imm20, NULL, 0));
 }
 
 ENCODER_DEFINE(ldw, r32, imm20)
 {
     int r = reg_index(r32);
     _VALIDATE_REG_INDEX(r, r32);
-    return make_mem(MEM_LDW, r, (uint32_t)strtoul(imm20, NULL, 0));
+    return make_mem(OC_MEM_LDW, r, (uint32_t)strtoul(imm20, NULL, 0));
 }
 
 ENCODER_DEFINE(stw, imm20, r32)
 {
     int r = reg_index(r32);
     _VALIDATE_REG_INDEX(r, r32);
-    return make_mem(MEM_STW, r, (uint32_t)strtoul(imm20, NULL, 0));
+    return make_mem(OC_MEM_STW, r, (uint32_t)strtoul(imm20, NULL, 0));
 }
 
 ENCODER_DEFINE(ldd, r32, imm20)
 {
     int r = reg_index(r32);
     _VALIDATE_REG_INDEX(r, r32);
-    return make_mem(MEM_LDD, r, (uint32_t)strtoul(imm20, NULL, 0));
+    return make_mem(OC_MEM_LDD, r, (uint32_t)strtoul(imm20, NULL, 0));
 }
 
 ENCODER_DEFINE(std, imm20, r32)
 {
     int r = reg_index(r32);
     _VALIDATE_REG_INDEX(r, r32);
-    return make_mem(MEM_STD, r, (uint32_t)strtoul(imm20, NULL, 0));
+    return make_mem(OC_MEM_STD, r, (uint32_t)strtoul(imm20, NULL, 0));
 }
 
 ENCODER_DEFINE(jmp, imm20, )
 {
-    return make_branch(BRANCH_JMP, (uint32_t)strtoul(imm20, NULL, 0));
+    return make_branch(OC_BRANCH_JMP, (uint32_t)strtoul(imm20, NULL, 0));
 }
 
 ENCODER_DEFINE(jc, imm20, )
 {
-    return make_branch(BRANCH_JC, (uint32_t)strtoul(imm20, NULL, 0));
+    return make_branch(OC_BRANCH_JC, (uint32_t)strtoul(imm20, NULL, 0));
 }
 
 ENCODER_DEFINE(jnc, imm20, )
 {
-    return make_branch(BRANCH_JNC, (uint32_t)strtoul(imm20, NULL, 0));
+    return make_branch(OC_BRANCH_JNC, (uint32_t)strtoul(imm20, NULL, 0));
 }
 
 ENCODER_DEFINE(jz, imm20, )
 {
-    return make_branch(BRANCH_JZ, (uint32_t)strtoul(imm20, NULL, 0));
+    return make_branch(OC_BRANCH_JZ, (uint32_t)strtoul(imm20, NULL, 0));
 }
 
 ENCODER_DEFINE(jnz, imm20, )
 {
-    return make_branch(BRANCH_JNZ, (uint32_t)strtoul(imm20, NULL, 0));
+    return make_branch(OC_BRANCH_JNZ, (uint32_t)strtoul(imm20, NULL, 0));
 }
 
 ENCODER_DEFINE(jo, imm20, )
 {
-    return make_branch(BRANCH_JO, (uint32_t)strtoul(imm20, NULL, 0));
+    return make_branch(OC_BRANCH_JO, (uint32_t)strtoul(imm20, NULL, 0));
 }
 
 ENCODER_DEFINE(jno, imm20, )
 {
-    return make_branch(BRANCH_JNO, (uint32_t)strtoul(imm20, NULL, 0));
+    return make_branch(OC_BRANCH_JNO, (uint32_t)strtoul(imm20, NULL, 0));
 }
 
 ENCODER_DEFINE(js, imm20, )
 {
-    return make_branch(BRANCH_JS, (uint32_t)strtoul(imm20, NULL, 0));
+    return make_branch(OC_BRANCH_JS, (uint32_t)strtoul(imm20, NULL, 0));
 }
 
 ENCODER_DEFINE(jns, imm20, )
 {
-    return make_branch(BRANCH_JNS, (uint32_t)strtoul(imm20, NULL, 0));
+    return make_branch(OC_BRANCH_JNS, (uint32_t)strtoul(imm20, NULL, 0));
 }
 
 ENCODER_DEFINE(call, imm20, )
 {
-    return make_branch(BRANCH_CALL, (uint32_t)strtoul(imm20, NULL, 0));
+    return make_branch(OC_BRANCH_CALL, (uint32_t)strtoul(imm20, NULL, 0));
 }
 
 ENCODER_DEFINE(ret, , )
 {
-    return make_branch(BRANCH_RET, 0);
+    return make_branch(OC_BRANCH_RET, 0);
 }
 
 ENCODER_DEFINE(hlt, , )
 {
-    return make_misc(MISC_HLT);
+    return make_misc(OC_MISC_HLT);
 }
 
 ENCODER_DEFINE(nop, , )
 {
-    return make_misc(MISC_NOP);
+    return make_misc(OC_MISC_NOP);
 }
 
-InstructionHandler instruction_table[] = {
+const struct instruction_handler instruction_table[] = {
     ENCODER_ADD(add),
     ENCODER_ADD(sub),
     ENCODER_ADD(mul),

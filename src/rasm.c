@@ -40,8 +40,8 @@ int main(int argc, char **argv)
         char mnemonic[32] = {0};
         char operand1[32] = {0};
         char operand2[32] = {0};
-        EncodedInstruction ei = {0};
-        _Bool found = 0;
+        struct encoded_instruction ei = {0};
+        bool found = false;
         int n = sscanf(line, "%31s %31[^,], %31s", mnemonic, operand1, operand2);
 
         if (n <= 0)
@@ -61,7 +61,7 @@ int main(int argc, char **argv)
             if (strcmp(mnemonic, instruction_table[i].mnemonic) == 0)
             {
                 ei = instruction_table[i].encode(operand1, operand2);
-                found = 1;
+                found = true;
                 break;
             }
         }
@@ -69,26 +69,26 @@ int main(int argc, char **argv)
         if (strcmp(mnemonic, ".byte") == 0)
         {
             ei.length = 1;
-            ei.bytes[0] = strtol(operand1, NULL, 0) & 0xff;
-            found = 1;
+            ei.bytes[0] = strtoul(operand1, NULL, 0) & 0xff;
+            found = true;
         }
 
         if (strcmp(mnemonic, ".word") == 0)
         {
             ei.length = 2;
-            ei.bytes[0] = strtol(operand1, NULL, 0) & 0xff;
-            ei.bytes[1] = (strtol(operand1, NULL, 0) >> 8) & 0xff;
-            found = 1;
+            ei.bytes[0] = strtoul(operand1, NULL, 0) & 0xff;
+            ei.bytes[1] = (strtoul(operand1, NULL, 0) >> 8) & 0xff;
+            found = true;
         }
 
         if (strcmp(mnemonic, ".dword") == 0)
         {
-            ei.length = 2;
-            ei.bytes[0] = strtol(operand1, NULL, 0) & 0xff;
-            ei.bytes[1] = (strtol(operand1, NULL, 0) >> 8) & 0xff;
-            ei.bytes[2] = (strtol(operand1, NULL, 0) >> 16) & 0xff;
-            ei.bytes[3] = (strtol(operand1, NULL, 0) >> 24) & 0xff;
-            found = 1;
+            ei.length = 4;
+            ei.bytes[0] = strtoul(operand1, NULL, 0) & 0xff;
+            ei.bytes[1] = (strtoul(operand1, NULL, 0) >> 8) & 0xff;
+            ei.bytes[2] = (strtoul(operand1, NULL, 0) >> 16) & 0xff;
+            ei.bytes[3] = (strtoul(operand1, NULL, 0) >> 24) & 0xff;
+            found = true;
         }
 
         if (!found)

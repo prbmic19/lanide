@@ -9,7 +9,7 @@ static const char *reg_names[REG_COUNT] = {
     "dip", "dstat"                              // Instruction pointer, Status/flags
 };
 
-typedef enum
+typedef enum alu_op
 {
     ALU_ADD,
     ALU_SUB,
@@ -19,10 +19,10 @@ typedef enum
     ALU_OR,
     ALU_XOR,
     ALU_NOT
-} AluOp;
+} alu_op_td;
 
 // Yeah... the ALU instructions implicitly update flags
-static inline void update_status(uint32_t *registers, AluOp operation, int32_t result, int32_t lhs, int32_t rhs)
+static inline void update_status(uint32_t *registers, alu_op_td operation, int32_t result, int32_t lhs, int32_t rhs)
 {
     if (result == 0)
     {
@@ -98,7 +98,7 @@ static inline void update_status(uint32_t *registers, AluOp operation, int32_t r
     }
 }
 
-static inline void alu_execute(uint32_t *registers, AluOp operation, uint8_t rd32, int32_t rhs)
+static inline void alu_execute(uint32_t *registers, enum alu_op operation, uint8_t rd32, int32_t rhs)
 {
     int32_t lhs = registers[rd32];
     int32_t result;
@@ -165,7 +165,7 @@ int main(int argc, char **argv)
         return ERR_MALFORMED;
     }
 
-    uint8_t *memory = (uint8_t *)calloc(MEM_SIZE, 1);
+    uint8_t *memory = (uint8_t *)malloc(MEM_SIZE);
     if (!memory)
     {
         perror("calloc");
@@ -200,7 +200,7 @@ int main(int argc, char **argv)
         memcpy(buffer, memory + dip, length);
 
         uint8_t class = opcode >> 4;
-        Opcode op = opcode & 0xf;
+        opcode_td op = opcode & 0xf;
 
         switch (class)
         {
@@ -210,16 +210,16 @@ int main(int argc, char **argv)
                 uint8_t rs32 = buffer[1] & 0xf;
                 switch (op)
                 {
-                    case REGREG_ADD:
+                    case OC_REGREG_ADD:
                         alu_execute(registers, ALU_ADD, rd32, registers[rs32]);
                         break;
-                    case REGREG_SUB:
+                    case OC_REGREG_SUB:
                         alu_execute(registers, ALU_SUB, rd32, registers[rs32]);
                         break;
-                    case REGREG_MUL:
+                    case OC_REGREG_MUL:
                         alu_execute(registers, ALU_MUL, rd32, registers[rs32]);
                         break;
-                    case REGREG_DIV:
+                    case OC_REGREG_DIV:
                         if (registers[rs32] == 0)
                         {
                             fprintf(stderr, "Illegal DIV instruction: divide-by-zero at address 0x%x\n", dip);
@@ -228,34 +228,34 @@ int main(int argc, char **argv)
                         }
                         alu_execute(registers, ALU_DIV, rd32, registers[rs32]);
                         break;
-                    case REGREG_AND:
+                    case OC_REGREG_AND:
                         alu_execute(registers, ALU_AND, rd32, registers[rs32]);
                         break;
-                    case REGREG_OR:
+                    case OC_REGREG_OR:
                         alu_execute(registers, ALU_OR, rd32, registers[rs32]);
                         break;
-                    case REGREG_XOR:
+                    case OC_REGREG_XOR:
                         alu_execute(registers, ALU_XOR, rd32, registers[rs32]);
                         break;
-                    case REGREG_NOT:
+                    case OC_REGREG_NOT:
                         alu_execute(registers, ALU_NOT, rd32, 0);
                         break;
-                    case REGREG_MOV:
+                    case OC_REGREG_MOV:
                         registers[rd32] = registers[rs32];
                         break;
-                    case REGREG_XCHG:
+                    case OC_REGREG_XCHG:
                         uint32_t temp = registers[rd32];
                         registers[rd32] = registers[rs32];
                         registers[rs32] = temp;
                         break;
-                    case REGREG_PUSH:
+                    case OC_REGREG_PUSH:
                         dsp -= 4;
                         memory[dsp]     = (uint8_t)(registers[rd32] & 0xff);
                         memory[dsp + 1] = (uint8_t)((registers[rd32] >> 8) & 0xff);
                         memory[dsp + 2] = (uint8_t)((registers[rd32] >> 16) & 0xff);
                         memory[dsp + 3] = (uint8_t)((registers[rd32] >> 24) & 0xff);
                         break;
-                    case REGREG_POP:
+                    case OC_REGREG_POP:
                         registers[rd32] = (uint32_t)memory[dsp]
                             | ((uint32_t)memory[dsp + 1] << 8)
                             | ((uint32_t)memory[dsp + 2] << 16)
@@ -290,16 +290,16 @@ int main(int argc, char **argv)
 
                 switch (op)
                 {
-                    case REGIMM_ADD:
+                    case OC_REGIMM_ADD:
                         alu_execute(registers, ALU_ADD, r32, imm);
                         break;
-                    case REGIMM_SUB:
+                    case OC_REGIMM_SUB:
                         alu_execute(registers, ALU_SUB, r32, imm);
                         break;
-                    case REGIMM_MUL:
+                    case OC_REGIMM_MUL:
                         alu_execute(registers, ALU_MUL, r32, imm);
                         break;
-                    case REGIMM_DIV:
+                    case OC_REGIMM_DIV:
                         if (imm == 0)
                         {
                             fprintf(stderr, "Illegal DIV instruction: divide-by-zero at address 0x%x\n", dip);
@@ -308,16 +308,16 @@ int main(int argc, char **argv)
                         }
                         alu_execute(registers, ALU_DIV, r32, imm);
                         break;
-                    case REGIMM_AND:
+                    case OC_REGIMM_AND:
                         alu_execute(registers, ALU_AND, r32, imm);
                         break;
-                    case REGIMM_OR:
+                    case OC_REGIMM_OR:
                         alu_execute(registers, ALU_OR, r32, imm);
                         break;
-                    case REGIMM_XOR:
+                    case OC_REGIMM_XOR:
                         alu_execute(registers, ALU_XOR, r32, imm);
                         break;
-                    case REGIMM_MOV:
+                    case OC_REGIMM_MOV:
                         registers[r32] = imm;
                         break;
                     default:
@@ -333,26 +333,26 @@ int main(int argc, char **argv)
                 uint32_t imm20 = (buffer[1] & 0xf) | (buffer[2] << 4) | (buffer[3] << 12);
                 switch (op)
                 {
-                    case MEM_LDB:
+                    case OC_MEM_LDB:
                         registers[r32] = memory[imm20];
                         break;
-                    case MEM_STB:
+                    case OC_MEM_STB:
                         memory[imm20] = (uint8_t)(registers[r32] & 0xff);
                         break;
-                    case MEM_LDW:
+                    case OC_MEM_LDW:
                         registers[r32] = (uint16_t)memory[imm20] | ((uint16_t)memory[imm20 + 1] << 8);
                         break;
-                    case MEM_STW:
+                    case OC_MEM_STW:
                         memory[imm20]       = (uint8_t)(registers[r32] & 0xff);
                         memory[imm20 + 1]   = (uint8_t)((registers[r32] >> 8) & 0xff);
                         break;
-                    case MEM_LDD:
+                    case OC_MEM_LDD:
                         registers[r32] = (uint32_t)memory[imm20]
                             | ((uint32_t)memory[imm20 + 1] << 8)
                             | ((uint32_t)memory[imm20 + 2] << 16)
                             | ((uint32_t)memory[imm20 + 3] << 24);
                         break;
-                    case MEM_STD:
+                    case OC_MEM_STD:
                         memory[imm20]     = (uint8_t)(registers[r32] & 0xff);
                         memory[imm20 + 1] = (uint8_t)((registers[r32] >> 8) & 0xff);
                         memory[imm20 + 2] = (uint8_t)((registers[r32] >> 16) & 0xff);
@@ -371,34 +371,34 @@ int main(int argc, char **argv)
                 // We continue to avoid "dip += length;"
                 switch (op)
                 {
-                    case BRANCH_JMP:
+                    case OC_BRANCH_JMP:
                         dip = imm20;
                         continue;
-                    case BRANCH_JC:
+                    case OC_BRANCH_JC:
                         JUMP(imm20, dstat & STAT_CF);
                         break;
-                    case BRANCH_JNC:
+                    case OC_BRANCH_JNC:
                         JUMP(imm20, !(dstat & STAT_CF));
                         break;
-                    case BRANCH_JZ:
+                    case OC_BRANCH_JZ:
                         JUMP(imm20, dstat & STAT_ZF);
                         break;
-                    case BRANCH_JNZ:
+                    case OC_BRANCH_JNZ:
                         JUMP(imm20, !(dstat & STAT_ZF));
                         break;
-                    case BRANCH_JO:
+                    case OC_BRANCH_JO:
                         JUMP(imm20, dstat & STAT_OF);
                         break;
-                    case BRANCH_JNO:
+                    case OC_BRANCH_JNO:
                         JUMP(imm20, !(dstat & STAT_OF));
                         break;
-                    case BRANCH_JS:
+                    case OC_BRANCH_JS:
                         JUMP(imm20, dstat & STAT_SF);
                         break;
-                    case BRANCH_JNS:
+                    case OC_BRANCH_JNS:
                         JUMP(imm20, !(dstat & STAT_SF));
                         break;
-                    case BRANCH_CALL:
+                    case OC_BRANCH_CALL:
                     {
                         // Push the address of the next instruction on stack
                         uint32_t return_address = dip + length;
@@ -410,7 +410,7 @@ int main(int argc, char **argv)
                         dip = imm20;
                         continue;
                     }
-                    case BRANCH_RET:
+                    case OC_BRANCH_RET:
                     {
                         uint32_t return_address = (uint32_t)memory[dsp]
                             | ((uint32_t)memory[dsp + 1] << 8)
@@ -430,9 +430,9 @@ int main(int argc, char **argv)
             case IC_MISC:
                 switch (op)
                 {
-                    case MISC_HLT:
+                    case OC_MISC_HLT:
                         goto halted;
-                    case MISC_NOP:
+                    case OC_MISC_NOP:
                         break;
                     default:
                         fprintf(stderr, "Illegal MISC opcode 0x%x at address 0x%x\n", op, dip);

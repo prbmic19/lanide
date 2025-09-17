@@ -5,6 +5,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <stdint.h>
+#include <stdbool.h>
 
 #define MAGIC_BYTES_SIZE 8
 // RObust BINary
@@ -29,70 +30,72 @@ static const uint8_t magic_bytes[MAGIC_BYTES_SIZE] = {'\x7f', '\x00', '\x00', 'R
 #define dip     registers[16]
 #define dstat   registers[17]
 
-typedef struct
+/* We use the "_td" suffix for typedefs and to avoid clashing with POSIX names */
+
+typedef struct encoded_instruction
 {
-    uint8_t bytes[8];
-    int length; // 1, 2, 4, or 6
-} EncodedInstruction;
+    uint8_t bytes[6];
+    int length;
+} encoded_instruction_td;
 
 // 16 possible classes
-typedef enum
+typedef enum instruction_class
 {
     IC_REGREG,
     IC_REGIMM,
     IC_MEM,
     IC_BRANCH,
     IC_MISC = 0xf
-} InstructionClass;
+} instruction_class_td;
 
-// 16 instructions per class
-
-typedef enum
+// 16 possible instructions per class
+typedef enum opcode
 {
-    REGREG_ADD,
-    REGREG_SUB,
-    REGREG_MUL,
-    REGREG_DIV,
-    REGREG_AND,
-    REGREG_OR,
-    REGREG_XOR,
-    REGREG_NOT,
-    REGREG_MOV,
-    REGREG_XCHG,
-    REGREG_PUSH,
-    REGREG_POP,
+    OC_REGREG_ADD,
+    OC_REGREG_SUB,
+    OC_REGREG_MUL,
+    OC_REGREG_DIV,
+    OC_REGREG_AND,
+    OC_REGREG_OR,
+    OC_REGREG_XOR,
+    OC_REGREG_NOT,
+    OC_REGREG_MOV,
+    OC_REGREG_XCHG,
+    OC_REGREG_PUSH,
+    OC_REGREG_POP,
 
-    REGIMM_ADD = 0,
-    REGIMM_SUB,
-    REGIMM_MUL,
-    REGIMM_DIV,
-    REGIMM_AND,
-    REGIMM_OR,
-    REGIMM_XOR,
-    REGIMM_MOV,
+    OC_REGIMM_ADD = 0,
+    OC_REGIMM_SUB,
+    OC_REGIMM_MUL,
+    OC_REGIMM_DIV,
+    OC_REGIMM_AND,
+    OC_REGIMM_OR,
+    OC_REGIMM_XOR,
+    OC_REGIMM_NOT,
+    OC_REGIMM_MOV,
 
-    MEM_LDB = 0,
-    MEM_STB,
-    MEM_LDW,
-    MEM_STW,
-    MEM_LDD,
-    MEM_STD,
+    OC_MEM_LDB = 0,
+    OC_MEM_STB,
+    OC_MEM_LDW,
+    OC_MEM_STW,
+    OC_MEM_LDD,
+    OC_MEM_STD,
 
-    BRANCH_JMP = 0,
-    BRANCH_JC,
-    BRANCH_JNC,
-    BRANCH_JZ,
-    BRANCH_JNZ,
-    BRANCH_JO,
-    BRANCH_JNO,
-    BRANCH_JS,
-    BRANCH_JNS,
-    BRANCH_CALL,
-    BRANCH_RET,
+    OC_BRANCH_JMP = 0,
+    OC_BRANCH_JC,
+    OC_BRANCH_JNC,
+    OC_BRANCH_JZ,
+    OC_BRANCH_JNZ,
+    OC_BRANCH_JO,
+    OC_BRANCH_JNO,
+    OC_BRANCH_JS,
+    OC_BRANCH_JNS,
+    OC_BRANCH_CALL,
+    OC_BRANCH_RET,
 
-    MISC_HLT = 0,
-    MISC_NOP
-} Opcode;
+    OC_MISC_HLT = 0,
+    OC_MISC_NOP
+} opcode_td;
 
 static inline int get_length(uint8_t opcode, uint8_t byte2)
 {
@@ -109,21 +112,21 @@ static inline int get_length(uint8_t opcode, uint8_t byte2)
         case IC_MEM:
             return 4;
         case IC_BRANCH:
-            return ((opcode & 0xf) == BRANCH_RET) ? 1 : 4; // Exception for RET
+            return ((opcode & 0xf) == OC_BRANCH_RET) ? 1 : 4; // Exception for RET
         case IC_MISC:
             return 1; // For now
         default:
-            return 1;
+            return 1; // So we don't accidentally step over potentially valid instructions.
     }
 }
 
-static inline _Bool has_ext(const char *filename, const char *ext)
+static inline bool has_ext(const char *filename, const char *ext)
 {
     size_t filename_length = strlen(filename);
     size_t ext_length = strlen(ext);
     if (filename_length < ext_length)
     {
-        return 0;
+        return false;
     }
     return strcmp(filename + filename_length - ext_length, ext) == 0;
 }

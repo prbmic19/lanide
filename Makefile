@@ -1,19 +1,20 @@
 CC = gcc
 CCFLAGS = -Wall -Wextra -Wpedantic
+BUILD_DIR = build
 ASMSRC = src/rasm.c src/encoders.c
 DISASMSRC = src/rdisasm.c
 EMUSRC = src/remu.c
-ASMEXE = $(BUILD_DIR)/rasm
-DISASMEXE = $(BUILD_DIR)/rdisasm
-EMUEXE = $(BUILD_DIR)/remu
+ASMEXE = $(BUILD_DIR)/rasm$(DEBUG_SUFFIX)
+DISASMEXE = build/rdisasm$(DEBUG_SUFFIX)
+EMUEXE = $(BUILD_DIR)/remu$(DEBUG_SUFFIX)
 
 DEBUG ?= 0
 ifeq ($(DEBUG), 1)
 	CCFLAGS += -ggdb -g3 -fno-inline -O0
-	BUILD_DIR = debug
+	DEBUG_SUFFIX = _debug
 else
 	CCFLAGS += -s -O2
-	BUILD_DIR = release
+	DEBUG_SUFFIX =
 endif
 
 ifeq ($(OS),Windows_NT)
