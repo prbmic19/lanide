@@ -25,6 +25,10 @@ static const uint8_t magic_bytes[MAGIC_BYTES_SIZE] = {'\x7f', '\x00', '\x00', 'R
 #define STAT_OF 0x4 // Overflow
 #define STAT_SF 0x8 // Sign
 
+// Sections in memory
+#define SECT_TEXT 0
+#define SECT_DATA 1
+
 // Useful aliases (depends on the fact that a "registers" variable exists)
 #define dsp     registers[10]
 #define dip     registers[16]
@@ -71,7 +75,6 @@ typedef enum opcode
     OC_REGIMM_AND,
     OC_REGIMM_OR,
     OC_REGIMM_XOR,
-    OC_REGIMM_NOT,
     OC_REGIMM_MOV,
 
     OC_MEM_LDB = 0,

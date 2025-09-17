@@ -1,4 +1,5 @@
 #include "helpers.h"
+#include "args.h"
 
 #define BAD_INSTRUCTION() printf("(bad)")
 #define REG_COUNT 18
@@ -11,12 +12,12 @@ static const char *reg_names[REG_COUNT] = {
     "dip", "dstat"
 };
 
-static void print_hex_bytes(uint8_t *mem, uint32_t addr, int length)
+static void print_hex_bytes(uint8_t *memory, uint32_t addr, int length)
 {
     int max_length = 6;
     for (int i = 0; i < length && i < max_length; i++)
     {
-        printf("%02x ", mem[addr + i]);
+        printf("%02x ", memory[addr + i]);
     }
     for (int i = length; i < max_length; i++)
     {
@@ -24,55 +25,8 @@ static void print_hex_bytes(uint8_t *mem, uint32_t addr, int length)
     }
 }
 
-int main(int argc, char **argv)
+void disassemble(uint8_t *memory, uint32_t ip, uint32_t end)
 {
-    if (argc != 2)
-    {
-        fprintf(stderr, "Usage: rdisasm <program.lx>\n");
-        return 1;
-    }
-    if (!has_ext(argv[1], ".lx"))
-    {
-        fprintf(stderr, "Input file must have .lx extension");
-        return 1;
-    }
-
-    FILE *fin = fopen(argv[1], "rb");
-    if (!fin)
-    {
-        perror("fopen");
-        return 1;
-    }
-
-    uint8_t header[MAGIC_BYTES_SIZE];
-    size_t header_read = fread(header, 1, MAGIC_BYTES_SIZE, fin);
-    if (header_read < MAGIC_BYTES_SIZE || memcmp(header, magic_bytes, MAGIC_BYTES_SIZE) != 0)
-    {
-        fprintf(stderr, "Invalid or missing magic bytes.\n");
-        fclose(fin);
-        return ERR_MALFORMED;
-    }
-
-    uint8_t *memory = (uint8_t *)malloc(MEM_SIZE);
-    if (!memory)
-    {
-        perror("calloc");
-        fclose(fin);
-        return 1;
-    }
-
-    size_t loaded = fread(memory + TEXT_BASE, 1, MEM_SIZE - TEXT_BASE, fin);
-    if (!feof(fin) && loaded == (MEM_SIZE - TEXT_BASE))
-    {
-        fprintf(stderr, "Warning: program may have been truncated.\n");
-    }
-    fclose(fin);
-
-    printf("Disassembly of %s:\n\n", argv[1]);
-
-    uint32_t ip = TEXT_BASE;
-    uint32_t end = TEXT_BASE + (uint32_t)loaded;
-
     while (ip < end)
     {
         uint8_t opcode = memory[ip];
@@ -101,11 +55,11 @@ int main(int argc, char **argv)
                 {
                     if (op == OC_REGREG_NOT || op == OC_REGREG_PUSH || op == OC_REGREG_POP)
                     {
-                        printf("%-7s %s", mnemonics[op], reg_names[rd32]);
+                        printf("%-6s %s", mnemonics[op], reg_names[rd32]);
                     }
                     else
                     {
-                        printf("%-7s %s,%s", mnemonics[op], reg_names[rd32], reg_names[rs32]);
+                        printf("%-6s %s,%s", mnemonics[op], reg_names[rd32], reg_names[rs32]);
                     }
                 }
                 else
@@ -136,7 +90,7 @@ int main(int argc, char **argv)
                 const char *mnemonics[] = {"add", "sub", "mul", "div", "and", "or", "xor", "mov"};
                 if (op < sizeof(mnemonics) / sizeof(mnemonics[0]))
                 {
-                    printf("%-7s %s,0x%x", mnemonics[op], reg_names[r32], imm);
+                    printf("%-6s %s,0x%x", mnemonics[op], reg_names[r32], imm);
                 }
                 else
                 {
@@ -154,11 +108,11 @@ int main(int argc, char **argv)
                 {
                     if (mnemonics[op][0] == 's')
                     {
-                        printf("%-7s 0x%x,%s", mnemonics[op], imm20, reg_names[r32]);
+                        printf("%-6s 0x%x,%s", mnemonics[op], imm20, reg_names[r32]);
                     }
                     else
                     {
-                        printf("%-7s %s,0x%x", mnemonics[op], reg_names[r32], imm20);
+                        printf("%-6s %s,0x%x", mnemonics[op], reg_names[r32], imm20);
                     }
                 }
                 else
@@ -180,7 +134,7 @@ int main(int argc, char **argv)
                     }
                     else
                     {
-                        printf("%-7s 0x%x", mnemonics[op], imm20);
+                        printf("%-6s 0x%x", mnemonics[op], imm20);
                     }
                 }
                 else
@@ -208,6 +162,114 @@ int main(int argc, char **argv)
 
         putchar('\n');
         ip += length;
+    }
+}
+
+int main(int argc, char **argv)
+{
+    char *input_file = NULL;
+    flag_td flags[] = {
+        {"--help", NULL, false, false},
+        {"-h", NULL, false, false},
+        {"--all-sections", NULL, false, false}
+    };
+
+    // Default = input
+    int position = parse_args(argc, argv, flags, 3);
+    input_file = argv[position];
+
+    // -h, --help
+    if (flags[0].present || flags[1].present)
+    {
+        printf("Usage: rdisasm [options...] <program.lx>\n\n");
+        printf("Options:\n\n");
+        printf("    -h, --help          Display this help message.\n");
+        return 0;
+    }
+
+    if (!has_ext(input_file, ".lx"))
+    {
+        fprintf(stderr, "Input file must have .lx extension.");
+        return 1;
+    }
+
+    FILE *fin = fopen(input_file, "rb");
+    if (!fin)
+    {
+        perror("fopen");
+        return 1;
+    }
+
+    uint8_t header[MAGIC_BYTES_SIZE];
+    size_t header_read = fread(header, 1, MAGIC_BYTES_SIZE, fin);
+    if (header_read < MAGIC_BYTES_SIZE || memcmp(header, magic_bytes, MAGIC_BYTES_SIZE) != 0)
+    {
+        fprintf(stderr, "Invalid or missing magic bytes.\n");
+        fclose(fin);
+        return ERR_MALFORMED;
+    }
+
+    uint32_t data_offset = 0;
+    if (fread(&data_offset, sizeof(uint32_t), 1, fin) != 1)
+    {
+        fprintf(stderr, "Failed to read data offset.\n");
+        fclose(fin);
+        return ERR_MALFORMED;
+    }
+
+    uint8_t *memory = (uint8_t *)calloc(MEM_SIZE, 1);
+    if (!memory)
+    {
+        perror("calloc");
+        fclose(fin);
+        return 1;
+    }
+
+    size_t text_to_read = (size_t)data_offset;
+    if (text_to_read > (MEM_SIZE - TEXT_BASE))
+    {
+        fprintf(stderr, "Text section too large to fit in memory.\n");
+        fclose(fin);
+        free(memory);
+        return ERR_MALFORMED;
+    }
+
+    size_t text_read = fread(memory + TEXT_BASE, 1, text_to_read, fin);
+    if (text_read != text_to_read)
+    {
+        if (feof(fin))
+        {
+            fprintf(stderr, "Warning: text section truncated (expected %zu, got %zu)\n", text_to_read, text_read);
+        }
+        else
+        {
+            perror("fread");
+            fclose(fin);
+            free(memory);
+            return 1;
+        }
+    }
+
+    // Load .data at DATA_BASE
+    size_t data_capacity = MEM_SIZE - DATA_BASE;
+    size_t data_read = fread(memory + DATA_BASE, 1, data_capacity, fin);
+    if (!feof(fin) && data_read == data_capacity)
+    {
+        fprintf(stderr, "Warning: data section may have been truncated\n");
+    }
+
+    fclose(fin);
+
+    printf("Disassembly of %s:\n\n", input_file);
+
+    printf("%08x <.text>:\n", TEXT_BASE);
+    disassemble(memory, TEXT_BASE, TEXT_BASE + (uint32_t)text_read);
+
+    // --all-sections
+    if (flags[2].present)
+    {
+        printf("\n%08x <.data>:\n", DATA_BASE);
+        disassemble(memory, DATA_BASE, DATA_BASE + (uint32_t)data_read);
     }
     
     free(memory);

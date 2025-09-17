@@ -1,4 +1,5 @@
 #include "helpers.h"
+#include "args.h"
 
 #define REG_COUNT 18
 static const char *reg_names[REG_COUNT] = {
@@ -137,19 +138,32 @@ static inline void alu_execute(uint32_t *registers, enum alu_op operation, uint8
 int main(int argc, char **argv)
 {
     int exit_code = 0;
+    char *input_file = NULL;
+    flag_td flags[] = {
+        {"--help", NULL, false, false},
+        {"-h", NULL, false, false}
+    };
 
-    if (argc != 2)
+    // Default = input
+    int position = parse_args(argc, argv, flags, 2);
+    input_file = argv[position];
+
+    // -h, --help
+    if (flags[0].present || flags[1].present)
     {
-        fprintf(stderr, "Usage: remu <program.lx>\n");
+        printf("Usage: remu [options...] <program.lx>\n\n");
+        printf("Options:\n\n");
+        printf("    -h, --help          Display this help message.\n");
+        return 0;
+    }
+
+    if (!has_ext(input_file, ".lx"))
+    {
+        fprintf(stderr, "Input file must have .lx extension.");
         return 1;
     }
-    if (!has_ext(argv[1], ".lx"))
-    {
-        fprintf(stderr, "Input file must have .lx extension");
-        return 1;
-    }
 
-    FILE *fin = fopen(argv[1], "rb");
+    FILE *fin = fopen(input_file, "rb");
     if (!fin)
     {
         perror("fopen");
@@ -165,20 +179,56 @@ int main(int argc, char **argv)
         return ERR_MALFORMED;
     }
 
-    uint8_t *memory = (uint8_t *)malloc(MEM_SIZE);
+    uint32_t data_offset = 0;
+    if (fread(&data_offset, sizeof(uint32_t), 1, fin) != 1)
+    {
+        fprintf(stderr, "Failed to read data offset.\n");
+        fclose(fin);
+        return ERR_MALFORMED;
+    }
+
+    uint8_t *memory = (uint8_t *)calloc(MEM_SIZE, 1);
     if (!memory)
     {
         perror("calloc");
         fclose(fin);
         return 1;
     }
-    
-    // Load the code in the middle
-    size_t loaded = fread(memory + TEXT_BASE, 1, MEM_SIZE - TEXT_BASE, fin);
-    if (!feof(fin) && loaded == (MEM_SIZE - TEXT_BASE))
-    {
-        fprintf(stderr, "Warning: program may have been truncated.");
+
+    // Load .text at TEXT_BASE
+    size_t text_to_read = (size_t)data_offset;
+    if (text_to_read > (MEM_SIZE - TEXT_BASE))
+    {   
+        fprintf(stderr, "Text section too large to fit in memory.\n");
+        free(memory);
+        fclose(fin);
+        return ERR_MALFORMED;
     }
+
+    size_t text_read = fread(memory + TEXT_BASE, 1, text_to_read, fin);
+    if (text_read != text_to_read)
+    {
+        if (feof(fin))
+        {
+            fprintf(stderr, "Warning: text section truncated (expected %zu, got %zu)\n", text_to_read, text_read);
+        }
+        else
+        {
+            perror("fread");
+            fclose(fin);
+            free(memory);
+            return 1;
+        }
+    }
+
+    // Load .data at DATA_BASE
+    size_t data_capacity = MEM_SIZE - DATA_BASE;
+    size_t data_read = fread(memory + DATA_BASE, 1, data_capacity, fin);
+    if (!feof(fin) && data_read == data_capacity)
+    {
+        fprintf(stderr, "Warning: data section may have been truncated\n");
+    }
+
     fclose(fin);
 
     uint32_t registers[18] = {0};
@@ -196,7 +246,7 @@ int main(int argc, char **argv)
 
         uint8_t opcode = memory[dip];
         int length = get_length(opcode, memory[dip + 1]);
-        uint8_t buffer[8] = {0};
+        uint8_t buffer[6] = {0};
         memcpy(buffer, memory + dip, length);
 
         uint8_t class = opcode >> 4;

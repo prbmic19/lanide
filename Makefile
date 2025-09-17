@@ -1,9 +1,9 @@
 CC = gcc
 CCFLAGS = -Wall -Wextra -Wpedantic
 BUILD_DIR = build
-ASMSRC = src/rasm.c src/encoders.c
-DISASMSRC = src/rdisasm.c
-EMUSRC = src/remu.c
+ASMSRC = src/rasm.c src/encoders.c src/args.c
+DISASMSRC = src/rdisasm.c src/args.c
+EMUSRC = src/remu.c src/args.c
 ASMEXE = $(BUILD_DIR)/rasm$(DEBUG_SUFFIX)
 DISASMEXE = build/rdisasm$(DEBUG_SUFFIX)
 EMUEXE = $(BUILD_DIR)/remu$(DEBUG_SUFFIX)
