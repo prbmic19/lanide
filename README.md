@@ -59,11 +59,11 @@ hlt
 ```
 Assembling it:
 ```sh
-./release/rasm examples/addition.asm addition.lx
+./build/rasm examples/addition.asm addition.lx
 ```
 Disassembling the output:
 ```sh
-./release/rdisasm addition.lx
+./build/rdisasm addition.lx
 ```
 And you'll see something like:
 ```
@@ -76,7 +76,7 @@ Disassembly of addition.lx:
 ```
 Finally, running it with the emulator:
 ```sh
-./release/remu addition.lx
+./build/remu addition.lx
 ```
 Now, `dxa` holds the result `10000`.
 
