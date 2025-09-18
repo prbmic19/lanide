@@ -13,7 +13,7 @@ static const char *reg_names[REG_COUNT] = {
     "dip", "dstat"                              // Instruction pointer, Status/flags
 };
 
-int reg_index(const char *reg)
+static int reg_index(const char *reg)
 {
     for (int i = 0; i < REG_COUNT; i++)
     {
@@ -25,7 +25,7 @@ int reg_index(const char *reg)
     return -1;
 }
 
-bool is_register(const char *operand, int *reg_idx, uint32_t *imm32)
+static bool is_register(const char *operand, int *reg_idx, uint32_t *imm32)
 {
     int index = reg_index(operand);
     if (index != -1)

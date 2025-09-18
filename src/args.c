@@ -44,11 +44,7 @@ int parse_args(int argc, char **argv, flag_td *flags, int flag_count)
             }
         }
 
-        if (!found && argv[i][0] != '-')
-        {
-            positional_index = i;
-        }
-        else if (!found && argv[i][0] == '-')
+        if (!found && argv[i][0] == '-')
         {
             fprintf(stderr, TXT_ERROR "Unknown flag \"%s\"\n", argv[i]);
             exit(ERR_MALFORMED);

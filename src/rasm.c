@@ -3,7 +3,7 @@
 #include "args.h"
 #include <ctype.h>
 
-char *trim(char *string)
+static char *trim(char *string)
 {
     char *end = NULL;
 
@@ -12,7 +12,6 @@ char *trim(char *string)
         string++;
     }
 
-    // All spaces?
     if (*string == '\0')
     {
         return string;

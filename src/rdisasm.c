@@ -25,7 +25,7 @@ static void print_hex_bytes(uint8_t *memory, uint32_t addr, int length)
     }
 }
 
-void disassemble(uint8_t *memory, uint32_t ip, uint32_t end)
+static void disassemble(uint8_t *memory, uint32_t ip, uint32_t end)
 {
     while (ip < end)
     {
