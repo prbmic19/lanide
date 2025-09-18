@@ -19,7 +19,10 @@ typedef enum alu_op
     ALU_AND,
     ALU_OR,
     ALU_XOR,
-    ALU_NOT
+    ALU_NOT,
+    ALU_NEG,
+    ALU_CMP,
+    ALU_TEST
 } alu_op_td;
 
 // Yeah... the ALU instructions implicitly update flags
@@ -64,6 +67,7 @@ static inline void update_status(uint32_t *registers, alu_op_td operation, int32
                 dstat &= ~STAT_OF;
             }
             break;
+        case ALU_CMP:
         case ALU_SUB:
             // Borrow
             if ((uint32_t)rhs > (uint32_t)lhs)
@@ -102,37 +106,47 @@ static inline void update_status(uint32_t *registers, alu_op_td operation, int32
 static inline void alu_execute(uint32_t *registers, enum alu_op operation, uint8_t rd32, int32_t rhs)
 {
     int32_t lhs = registers[rd32];
-    int32_t result;
+    int32_t result = registers[rd32];
+    int32_t result2; // For discarding
 
     switch (operation)
     {
         case ALU_ADD:
-            result = lhs + rhs;
+            result = result2 = lhs + rhs;
             break;
         case ALU_SUB:
-            result = lhs - rhs;
+            result = result2 = lhs - rhs;
             break;
         case ALU_MUL:
-            result = lhs * rhs;
+            result = result2 = lhs * rhs;
             break;
         case ALU_DIV:
-            result = lhs / rhs;
+            result = result2 = lhs / rhs;
             break;
         case ALU_AND:
-            result = lhs & rhs;
+            result = result2 = lhs & rhs;
             break;
         case ALU_OR:
-            result = lhs | rhs;
+            result = result2 = lhs | rhs;
             break;
         case ALU_XOR:
-            result = lhs ^ rhs;
+            result = result2 = lhs ^ rhs;
             break;
         case ALU_NOT:
-            result = ~lhs;
+            result = result2 = ~lhs;
+            break;
+        case ALU_NEG:
+            result = result2 = -lhs;
+            break;
+        case ALU_CMP:
+            result2 = lhs - rhs;
+            break;
+        case ALU_TEST:
+            result2 = lhs & rhs;
             break;
     }
     registers[rd32] = (uint32_t)result;
-    update_status(registers, operation, result, lhs, rhs);
+    update_status(registers, operation, result2, lhs, rhs);
 }
 
 int main(int argc, char **argv)
@@ -299,13 +313,17 @@ int main(int argc, char **argv)
                     case IT_REGREG_NOT:
                         alu_execute(registers, ALU_NOT, rd32, 0);
                         break;
+                    case IT_REGREG_NEG:
+                        alu_execute(registers, ALU_NEG, rd32, 0);
+                        break;
                     case IT_REGREG_MOV:
                         registers[rd32] = registers[rs32];
                         break;
-                    case IT_REGREG_XCHG:
-                        uint32_t temp = registers[rd32];
-                        registers[rd32] = registers[rs32];
-                        registers[rs32] = temp;
+                    case IT_REGREG_CMP:
+                        alu_execute(registers, ALU_CMP, rd32, registers[rs32]);
+                        break;
+                    case IT_REGREG_TEST:
+                        alu_execute(registers, ALU_TEST, rd32, registers[rs32]);
                         break;
                     case IT_REGREG_PUSH:
                         dsp -= 4;
@@ -314,6 +332,13 @@ int main(int argc, char **argv)
                         memory[dsp + 2] = (uint8_t)((registers[rd32] >> 16) & 0xff);
                         memory[dsp + 3] = (uint8_t)((registers[rd32] >> 24) & 0xff);
                         break;
+                    case IT_REGREG_PUSHFD:
+                        dsp -= 4;
+                        memory[dsp]     = (uint8_t)(dstat & 0xff);
+                        memory[dsp + 1] = (uint8_t)((dstat >> 8) & 0xff);
+                        memory[dsp + 2] = (uint8_t)((dstat >> 16) & 0xff);
+                        memory[dsp + 3] = (uint8_t)((dstat >> 24) & 0xff);
+                        break;
                     case IT_REGREG_POP:
                         registers[rd32] = (uint32_t)memory[dsp]
                             | ((uint32_t)memory[dsp + 1] << 8)
@@ -321,8 +346,53 @@ int main(int argc, char **argv)
                             | ((uint32_t)memory[dsp + 3] << 24);
                         dsp += 4;
                         break;
+                    case IT_REGREG_POPFD:
+                        dstat = (uint32_t)memory[dsp]
+                            | ((uint32_t)memory[dsp + 1] << 8)
+                            | ((uint32_t)memory[dsp + 2] << 16)
+                            | ((uint32_t)memory[dsp + 3] << 24);
+                        dsp += 4;
+                        break;
                     default:
                         fprintf(stderr, TXT_ERROR "Illegal REGREG opcode 0x%x at address 0x%x\n", op, dip);
+                        exit_code = ERR_ILLINT;
+                        goto halted;
+                }
+                break;
+            }
+            case IC_XREGREG:
+            {
+                uint8_t rd32 = buffer[1] >> 4;
+                uint8_t rs32 = buffer[1] & 0xf;
+                switch (op)
+                {
+                    case IT_XREGREG_XCHG:
+                    {
+                        uint32_t temp = registers[rd32];
+                        registers[rd32] = registers[rs32];
+                        registers[rs32] = temp;
+                        break;
+                    }
+                    case IT_XREGREG_LDIP:
+                        registers[rd32] = dip + length;
+                        break;
+                    case IT_XREGREG_JMP:
+                        dip = registers[rd32];
+                        continue;
+                    case IT_XREGREG_CALL:
+                    {
+                        // Push the address of the next instruction on stack
+                        uint32_t return_address = dip + length;
+                        dsp -= 4;
+                        memory[dsp]     = (uint8_t)(return_address & 0xff);
+                        memory[dsp + 1] = (uint8_t)((return_address >> 8) & 0xff);
+                        memory[dsp + 2] = (uint8_t)((return_address >> 16) & 0xff);
+                        memory[dsp + 3] = (uint8_t)((return_address >> 24) & 0xff);
+                        dip = registers[rd32];
+                        continue;
+                    }
+                    default:
+                        fprintf(stderr, TXT_ERROR "Illegal XREGREG opcode 0x%x at address 0x%x\n", op, dip);
                         exit_code = ERR_ILLINT;
                         goto halted;
                 }
@@ -379,6 +449,12 @@ int main(int argc, char **argv)
                     case IT_REGIMM_MOV:
                         registers[r32] = imm;
                         break;
+                    case IT_REGIMM_CMP:
+                        alu_execute(registers, ALU_CMP, r32, imm);
+                        break;
+                    case IT_REGIMM_TEST:
+                        alu_execute(registers, ALU_TEST, r32, imm);
+                        break;
                     default:
                         fprintf(stderr, TXT_ERROR "Illegal REGIMM opcode 0x%x at address 0x%x\n", op, dip);
                         exit_code = ERR_ILLINT;
@@ -395,21 +471,21 @@ int main(int argc, char **argv)
                     case IT_MEM_LDB:
                         registers[r32] = memory[imm20];
                         break;
-                    case IT_MEM_STB:
-                        memory[imm20] = (uint8_t)(registers[r32] & 0xff);
-                        break;
                     case IT_MEM_LDW:
                         registers[r32] = (uint16_t)memory[imm20] | ((uint16_t)memory[imm20 + 1] << 8);
-                        break;
-                    case IT_MEM_STW:
-                        memory[imm20]       = (uint8_t)(registers[r32] & 0xff);
-                        memory[imm20 + 1]   = (uint8_t)((registers[r32] >> 8) & 0xff);
                         break;
                     case IT_MEM_LDD:
                         registers[r32] = (uint32_t)memory[imm20]
                             | ((uint32_t)memory[imm20 + 1] << 8)
                             | ((uint32_t)memory[imm20 + 2] << 16)
                             | ((uint32_t)memory[imm20 + 3] << 24);
+                        break;
+                    case IT_MEM_STB:
+                        memory[imm20] = (uint8_t)(registers[r32] & 0xff);
+                        break;
+                    case IT_MEM_STW:
+                        memory[imm20]       = (uint8_t)(registers[r32] & 0xff);
+                        memory[imm20 + 1]   = (uint8_t)((registers[r32] >> 8) & 0xff);
                         break;
                     case IT_MEM_STD:
                         memory[imm20]     = (uint8_t)(registers[r32] & 0xff);
@@ -433,30 +509,6 @@ int main(int argc, char **argv)
                     case IT_BRANCH_JMP:
                         dip = imm20;
                         continue;
-                    case IT_BRANCH_JC:
-                        JUMP(imm20, dstat & STAT_CF);
-                        break;
-                    case IT_BRANCH_JNC:
-                        JUMP(imm20, !(dstat & STAT_CF));
-                        break;
-                    case IT_BRANCH_JZ:
-                        JUMP(imm20, dstat & STAT_ZF);
-                        break;
-                    case IT_BRANCH_JNZ:
-                        JUMP(imm20, !(dstat & STAT_ZF));
-                        break;
-                    case IT_BRANCH_JO:
-                        JUMP(imm20, dstat & STAT_OF);
-                        break;
-                    case IT_BRANCH_JNO:
-                        JUMP(imm20, !(dstat & STAT_OF));
-                        break;
-                    case IT_BRANCH_JS:
-                        JUMP(imm20, dstat & STAT_SF);
-                        break;
-                    case IT_BRANCH_JNS:
-                        JUMP(imm20, !(dstat & STAT_SF));
-                        break;
                     case IT_BRANCH_CALL:
                     {
                         // Push the address of the next instruction on stack
@@ -481,6 +533,60 @@ int main(int argc, char **argv)
                     }
                     default:
                         fprintf(stderr, TXT_ERROR "Illegal BRANCH opcode %x at address %x\n", op, dip);
+                        exit_code = ERR_ILLINT;
+                        goto halted;
+                }
+                break;
+            }
+            case IC_XBRANCH:
+            {
+                uint32_t imm20 = (buffer[1] & 0xf) | (buffer[2] << 4) | (buffer[3] << 12);
+                switch (op)
+                {
+                    case IT_XBRANCH_JC:
+                        JUMP(imm20, dstat & STAT_CF);
+                        break;
+                    case IT_XBRANCH_JZ:
+                        JUMP(imm20, dstat & STAT_ZF);
+                        break;
+                    case IT_XBRANCH_JO:
+                        JUMP(imm20, dstat & STAT_OF);
+                        break;
+                    case IT_XBRANCH_JS:
+                        JUMP(imm20, dstat & STAT_SF);
+                        break;
+                    case IT_XBRANCH_JNC:
+                        JUMP(imm20, !(dstat & STAT_CF));
+                        break;
+                    case IT_XBRANCH_JNZ:
+                        JUMP(imm20, !(dstat & STAT_ZF));
+                        break;
+                    case IT_XBRANCH_JNO:
+                        JUMP(imm20, !(dstat & STAT_OF));
+                        break;
+                    case IT_XBRANCH_JNS:
+                        JUMP(imm20, !(dstat & STAT_SF));
+                        break;
+                    case IT_XBRANCH_JG:
+                        JUMP(imm20, !(dstat & STAT_ZF) && ((dstat & STAT_SF) == (dstat & STAT_OF)));
+                        break;
+                    case IT_XBRANCH_JGE:
+                        JUMP(imm20, (dstat & STAT_SF) == (dstat & STAT_OF));
+                        break;
+                    case IT_XBRANCH_JL:
+                        JUMP(imm20, (dstat & STAT_SF) != (dstat & STAT_OF));
+                        break;
+                    case IT_XBRANCH_JLE:
+                        JUMP(imm20, (dstat & STAT_ZF) && ((dstat & STAT_SF) != (dstat & STAT_OF)));
+                        break;
+                    case IT_XBRANCH_JA:
+                        JUMP(imm20, !(dstat & STAT_CF) && !(dstat & STAT_ZF));
+                        break;
+                    case IT_XBRANCH_JBE:
+                        JUMP(imm20, (dstat & STAT_CF) && (dstat & STAT_ZF));
+                        break;
+                    default:
+                        fprintf(stderr, TXT_ERROR "Illegal XBRANCH opcode %x at address %x\n", op, dip);
                         exit_code = ERR_ILLINT;
                         goto halted;
                 }

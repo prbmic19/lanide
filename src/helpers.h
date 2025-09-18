@@ -26,8 +26,8 @@ static const uint8_t magic_bytes[MAGIC_BYTES_SIZE] = {'\x7f', '\x00', '\x00', 'R
 #define STAT_SF 0x8 // Sign
 
 // Reduce repetition!
-#define TXT_ERROR "\x1b[31merror:\x1b[0m "  // Red
-#define TXT_WARN "\x1b[33mwarning:\x1b[0m " // Yellow
+#define TXT_ERROR   "\x1b[31merror:\x1b[0m "  // Red
+#define TXT_WARN    "\x1b[35mwarning:\x1b[0m " // Purple
 
 // Sections in memory
 #define SECT_TEXT 0
@@ -50,9 +50,11 @@ typedef struct instruction
 typedef enum instruction_class
 {
     IC_REGREG,
+    IC_XREGREG,
     IC_REGIMM,
     IC_MEM,
     IC_BRANCH,
+    IC_XBRANCH,
     IC_MISC = 0xf
 } instruction_class_td;
 
@@ -67,10 +69,19 @@ typedef enum instruction_type
     IT_REGREG_OR,
     IT_REGREG_XOR,
     IT_REGREG_NOT,
+    IT_REGREG_NEG,
     IT_REGREG_MOV,
-    IT_REGREG_XCHG,
+    IT_REGREG_CMP,
+    IT_REGREG_TEST,
     IT_REGREG_PUSH,
+    IT_REGREG_PUSHFD,
     IT_REGREG_POP,
+    IT_REGREG_POPFD,
+
+    IT_XREGREG_XCHG = 0,
+    IT_XREGREG_LDIP,
+    IT_XREGREG_JMP,
+    IT_XREGREG_CALL,
 
     IT_REGIMM_ADD = 0,
     IT_REGIMM_SUB,
@@ -80,25 +91,34 @@ typedef enum instruction_type
     IT_REGIMM_OR,
     IT_REGIMM_XOR,
     IT_REGIMM_MOV,
+    IT_REGIMM_CMP,
+    IT_REGIMM_TEST,
 
     IT_MEM_LDB = 0,
-    IT_MEM_STB,
     IT_MEM_LDW,
-    IT_MEM_STW,
     IT_MEM_LDD,
+    IT_MEM_STB,
+    IT_MEM_STW,
     IT_MEM_STD,
 
     IT_BRANCH_JMP = 0,
-    IT_BRANCH_JC,
-    IT_BRANCH_JNC,
-    IT_BRANCH_JZ,
-    IT_BRANCH_JNZ,
-    IT_BRANCH_JO,
-    IT_BRANCH_JNO,
-    IT_BRANCH_JS,
-    IT_BRANCH_JNS,
     IT_BRANCH_CALL,
     IT_BRANCH_RET,
+
+    IT_XBRANCH_JC = 0, // JB too
+    IT_XBRANCH_JZ,
+    IT_XBRANCH_JO,
+    IT_XBRANCH_JS,
+    IT_XBRANCH_JNC, // JAE too
+    IT_XBRANCH_JNZ,
+    IT_XBRANCH_JNO,
+    IT_XBRANCH_JNS,
+    IT_XBRANCH_JG,
+    IT_XBRANCH_JGE,
+    IT_XBRANCH_JL,
+    IT_XBRANCH_JLE,
+    IT_XBRANCH_JA,
+    IT_XBRANCH_JBE,
 
     IT_MISC_HLT = 0,
     IT_MISC_NOP
@@ -109,6 +129,10 @@ static inline int get_length(uint8_t opcode, uint8_t byte2)
     switch (opcode >> 4)
     {
         case IC_REGREG:
+            return (((opcode & 0xf) == IT_REGREG_PUSHFD) || ((opcode & 0xf) == IT_REGREG_POPFD))
+                ? 1
+                : 2;
+        case IC_XREGREG:
             return 2;
         case IC_REGIMM:
             return ((byte2 & 0xf) == 0)
@@ -119,7 +143,9 @@ static inline int get_length(uint8_t opcode, uint8_t byte2)
         case IC_MEM:
             return 4;
         case IC_BRANCH:
-            return ((opcode & 0xf) == IT_BRANCH_RET) ? 1 : 4; // Exception for RET
+            return ((opcode & 0xf) == IT_BRANCH_RET) ? 1 : 4;
+        case IC_XBRANCH:
+            return 4;
         case IC_MISC:
             return 1; // For now
         default:

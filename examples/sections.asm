@@ -2,6 +2,7 @@
     .dword 0xAABBCCDD
 
     ; Sneak a NOP here :P
+    ; We could also just have wrote "nop"
     .byte 0xF1
 
 .section .text

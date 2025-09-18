@@ -50,16 +50,43 @@ static void disassemble(uint8_t *memory, uint32_t ip, uint32_t end)
                 uint8_t b1 = memory[ip + 1];
                 uint8_t rd32 = (b1 >> 4) & 0xf;
                 uint8_t rs32 = b1 & 0xf;
-                const char *mnemonics[] = {"add", "sub", "mul", "div", "and", "or", "xor", "not", "mov", "xchg", "push", "pop"};
+                const char *mnemonics[] = {"add", "sub", "mul", "div", "and", "or", "xor", "not", "neg", "mov", "cmp", "test", "push", "pushfd", "pop", "popfd"};
                 if (op < sizeof(mnemonics) / sizeof(mnemonics[0]))
                 {
-                    if (op == IT_REGREG_NOT || op == IT_REGREG_PUSH || op == IT_REGREG_POP)
+                    if (op == IT_REGREG_NOT || op == IT_REGREG_NEG || op == IT_REGREG_PUSH || op == IT_REGREG_POP)
                     {
                         printf("%-6s %s", mnemonics[op], reg_names[rd32]);
+                    }
+                    else if (op == IT_REGREG_PUSHFD || op == IT_REGREG_POPFD)
+                    {
+                        printf(mnemonics[op]);
                     }
                     else
                     {
                         printf("%-6s %s,%s", mnemonics[op], reg_names[rd32], reg_names[rs32]);
+                    }
+                }
+                else
+                {
+                    BAD_INSTRUCTION();
+                }
+                break;
+            }
+            case IC_XREGREG:
+            {
+                uint8_t b1 = memory[ip + 1];
+                uint8_t rd32 = (b1 >> 4) & 0xf;
+                uint8_t rs32 = b1 & 0xf;
+                const char *mnemonics[] = {"xchg", "ldip", "jmp", "call"};
+                if (op < sizeof(mnemonics) / sizeof(mnemonics[0]))
+                {
+                    if (op == IT_XREGREG_XCHG)
+                    {
+                        printf("%-6s %s,%s", mnemonics[op], reg_names[rd32], reg_names[rs32]);
+                    }
+                    else
+                    {
+                        printf("%-6s %s", mnemonics[op], reg_names[rd32]);
                     }
                 }
                 else
@@ -87,7 +114,7 @@ static void disassemble(uint8_t *memory, uint32_t ip, uint32_t end)
                     break;
                 }
 
-                const char *mnemonics[] = {"add", "sub", "mul", "div", "and", "or", "xor", "mov"};
+                const char *mnemonics[] = {"add", "sub", "mul", "div", "and", "or", "xor", "mov", "cmp", "test"};
                 if (op < sizeof(mnemonics) / sizeof(mnemonics[0]))
                 {
                     printf("%-6s %s,0x%x", mnemonics[op], reg_names[r32], imm);
@@ -103,7 +130,7 @@ static void disassemble(uint8_t *memory, uint32_t ip, uint32_t end)
                 uint8_t b1 = memory[ip + 1];
                 uint8_t r32 = (b1 >> 4) & 0xf;
                 uint32_t imm20 = (b1 & 0xf) | (memory[ip+2] << 4) | (memory[ip+3] << 12);
-                const char *mnemonics[] = {"ldb", "stb", "ldw", "stw", "ldd", "std"};
+                const char *mnemonics[] = {"ldb", "ldw", "ldd", "stb", "stw", "std"};
                 if (op < sizeof(mnemonics) / sizeof(mnemonics[0]))
                 {
                     if (mnemonics[op][0] == 's')
@@ -123,19 +150,32 @@ static void disassemble(uint8_t *memory, uint32_t ip, uint32_t end)
             }
             case IC_BRANCH:
             {
-                uint8_t b1 = memory[ip + 1];
-                uint32_t imm20 = (b1 & 0xf) | (memory[ip + 2] << 4) | (memory[ip + 3] << 12);
-                const char *mnemonics[] = {"jmp", "jc", "jnc", "jz", "jnz", "jo", "jno", "js", "jns", "call", "ret"};
+                uint32_t imm20 = (memory[ip + 1] & 0xf) | (memory[ip + 2] << 4) | (memory[ip + 3] << 12);
+                const char *mnemonics[] = {"jmp", "call", "ret"};
                 if (op < sizeof(mnemonics) / sizeof(mnemonics[0]))
                 {
                     if (op == IT_BRANCH_RET)
                     {
-                        printf("ret");
+                        puts("ret");
                     }
                     else
                     {
                         printf("%-6s 0x%x", mnemonics[op], imm20);
                     }
+                }
+                else
+                {
+                    BAD_INSTRUCTION();
+                }
+                break;
+            }
+            case IC_XBRANCH:
+            {
+                uint32_t imm20 = (memory[ip + 1] & 0xf) | (memory[ip + 2] << 4) | (memory[ip + 3] << 12);
+                const char *mnemonics[] = {"jc", "jz", "jo", "js", "jnc", "jnz", "jno", "jns", "jg", "jge", "jl", "jle", "ja", "jbe"};
+                if (op < sizeof(mnemonics) / sizeof(mnemonics[0]))
+                {
+                    printf("%-6s 0x%x", mnemonics[op], imm20);
                 }
                 else
                 {
