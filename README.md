@@ -52,14 +52,15 @@ Here's a tiny RX program taken from `examples/addition.asm`.
 It adds two numbers and halts. (nothing fancy, but it shows the basics):
 ```asm
 ; examples/addition.asm
-mov dxa, 2500
-mov dxt, 7500
-add dxa, dxt
-hlt
+.section .text
+   mov dxa, 2500
+   mov dxt, 7500
+   add dxa, dxt
+   hlt
 ```
 Assembling it:
 ```sh
-./build/rasm examples/addition.asm addition.lx
+./build/rasm examples/addition.asm -o addition.lx
 ```
 Disassembling the output:
 ```sh
@@ -67,18 +68,20 @@ Disassembling the output:
 ```
 And you'll see something like:
 ```
-Disassembly of addition.lx:
+Target: addition.lx
 
-   20000:   17 01 c4 09          mov     dxa,0x9c4
-   20004:   17 11 4c 1d          mov     dxt,0x1d4c
-   20008:   00 01                add     dxa,dxt
+Disassembly of section .text:
+
+   20000:   17 01 c4 09          mov    dxa,0x9c4
+   20004:   17 11 4c 1d          mov    dxt,0x1d4c
+   20008:   00 01                add    dxa,dxt
    2000a:   f0                   hlt
 ```
-Finally, running it with the emulator:
+Finally, running it with the emulator, displaying values at the end:
 ```sh
-./build/remu addition.lx
+./build/remu --show-state addition.lx
 ```
-Now, `dxa` holds the result `10000`.
+You'll see that `dxa` holds the result `10000`.
 
 ## Credits
 RX pulls inspiration from a bunch of places:
@@ -92,6 +95,7 @@ Big thanks to the open-source community in general—staring at other people's a
 This is just a playground for now, but here's where I'd like to take it:
 - More instructions
 - Better error messages
+- Proper documentation
 - A ~~toy~~ compiler that targets RX
 - 64-bit extension someday
 

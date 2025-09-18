@@ -140,12 +140,20 @@ int main(int argc, char **argv)
     int exit_code = 0;
     char *input_file = NULL;
     flag_td flags[] = {
-        {"--help", NULL, false, false},
-        {"-h", NULL, false, false}
+        { .name = "--help" },
+        { .name = "-h" },
+        // Prints reg values and 512 bytes when the program stops.
+        // This is temporarily. Will remove when we get a nice debugger/dumper
+        { .name = "--show-state" }
     };
 
     // Default = input
-    int position = parse_args(argc, argv, flags, 2);
+    int position = parse_args(argc, argv, flags, sizeof(flags) / sizeof(flags[0]));
+    if (position < 0)
+    {
+        fprintf(stderr, TXT_ERROR "Missing input file.\n");
+        return 1;
+    }
     input_file = argv[position];
 
     // -h, --help
@@ -154,12 +162,13 @@ int main(int argc, char **argv)
         printf("Usage: remu [options...] <program.lx>\n\n");
         printf("Options:\n\n");
         printf("    -h, --help          Display this help message.\n");
+        printf("    --show-state        Display register values and 512 bytes of memory at program end.\n");
         return 0;
     }
 
     if (!has_ext(input_file, ".lx"))
     {
-        fprintf(stderr, "Input file must have .lx extension.");
+        fprintf(stderr, TXT_ERROR "Input file must have .lx extension.");
         return 1;
     }
 
@@ -174,7 +183,7 @@ int main(int argc, char **argv)
     size_t header_read = fread(header, 1, MAGIC_BYTES_SIZE, fin);
     if (header_read < MAGIC_BYTES_SIZE || memcmp(header, magic_bytes, MAGIC_BYTES_SIZE) != 0)
     {
-        fprintf(stderr, "Invalid or missing magic bytes.\n");
+        fprintf(stderr, TXT_ERROR "Invalid or missing magic bytes.\n");
         fclose(fin);
         return ERR_MALFORMED;
     }
@@ -182,7 +191,7 @@ int main(int argc, char **argv)
     uint32_t data_offset = 0;
     if (fread(&data_offset, sizeof(uint32_t), 1, fin) != 1)
     {
-        fprintf(stderr, "Failed to read data offset.\n");
+        fprintf(stderr, TXT_ERROR "Failed to read data offset.\n");
         fclose(fin);
         return ERR_MALFORMED;
     }
@@ -199,7 +208,7 @@ int main(int argc, char **argv)
     size_t text_to_read = (size_t)data_offset;
     if (text_to_read > (MEM_SIZE - TEXT_BASE))
     {   
-        fprintf(stderr, "Text section too large to fit in memory.\n");
+        fprintf(stderr, TXT_ERROR "Text section too large to fit in memory.\n");
         free(memory);
         fclose(fin);
         return ERR_MALFORMED;
@@ -210,7 +219,7 @@ int main(int argc, char **argv)
     {
         if (feof(fin))
         {
-            fprintf(stderr, "Warning: text section truncated (expected %zu, got %zu)\n", text_to_read, text_read);
+            fprintf(stderr, TXT_WARN "Text section truncated (expected %zu, got %zu)\n", text_to_read, text_read);
         }
         else
         {
@@ -226,7 +235,7 @@ int main(int argc, char **argv)
     size_t data_read = fread(memory + DATA_BASE, 1, data_capacity, fin);
     if (!feof(fin) && data_read == data_capacity)
     {
-        fprintf(stderr, "Warning: data section may have been truncated\n");
+        fprintf(stderr, TXT_WARN "Data section may have been truncated.\n");
     }
 
     fclose(fin);
@@ -239,7 +248,7 @@ int main(int argc, char **argv)
     {
         if (dip + 3 >= MEM_SIZE)
         {
-            fprintf(stderr, "Instruction pointer out of bounds: 0x%x\n", dip);
+            fprintf(stderr, TXT_ERROR "Instruction pointer out of bounds: 0x%x\n", dip);
             exit_code = ERR_BOUND;
             break;
         }
@@ -249,8 +258,8 @@ int main(int argc, char **argv)
         uint8_t buffer[6] = {0};
         memcpy(buffer, memory + dip, length);
 
-        uint8_t class = opcode >> 4;
-        opcode_td op = opcode & 0xf;
+        instruction_class_td class = opcode >> 4;
+        instruction_type_td op = opcode & 0xf;
 
         switch (class)
         {
@@ -260,52 +269,52 @@ int main(int argc, char **argv)
                 uint8_t rs32 = buffer[1] & 0xf;
                 switch (op)
                 {
-                    case OC_REGREG_ADD:
+                    case IT_REGREG_ADD:
                         alu_execute(registers, ALU_ADD, rd32, registers[rs32]);
                         break;
-                    case OC_REGREG_SUB:
+                    case IT_REGREG_SUB:
                         alu_execute(registers, ALU_SUB, rd32, registers[rs32]);
                         break;
-                    case OC_REGREG_MUL:
+                    case IT_REGREG_MUL:
                         alu_execute(registers, ALU_MUL, rd32, registers[rs32]);
                         break;
-                    case OC_REGREG_DIV:
+                    case IT_REGREG_DIV:
                         if (registers[rs32] == 0)
                         {
-                            fprintf(stderr, "Illegal DIV instruction: divide-by-zero at address 0x%x\n", dip);
+                            fprintf(stderr, TXT_ERROR "Illegal DIV instruction: divide-by-zero at address 0x%x\n", dip);
                             exit_code = ERR_ILLINT;
                             goto halted;
                         }
                         alu_execute(registers, ALU_DIV, rd32, registers[rs32]);
                         break;
-                    case OC_REGREG_AND:
+                    case IT_REGREG_AND:
                         alu_execute(registers, ALU_AND, rd32, registers[rs32]);
                         break;
-                    case OC_REGREG_OR:
+                    case IT_REGREG_OR:
                         alu_execute(registers, ALU_OR, rd32, registers[rs32]);
                         break;
-                    case OC_REGREG_XOR:
+                    case IT_REGREG_XOR:
                         alu_execute(registers, ALU_XOR, rd32, registers[rs32]);
                         break;
-                    case OC_REGREG_NOT:
+                    case IT_REGREG_NOT:
                         alu_execute(registers, ALU_NOT, rd32, 0);
                         break;
-                    case OC_REGREG_MOV:
+                    case IT_REGREG_MOV:
                         registers[rd32] = registers[rs32];
                         break;
-                    case OC_REGREG_XCHG:
+                    case IT_REGREG_XCHG:
                         uint32_t temp = registers[rd32];
                         registers[rd32] = registers[rs32];
                         registers[rs32] = temp;
                         break;
-                    case OC_REGREG_PUSH:
+                    case IT_REGREG_PUSH:
                         dsp -= 4;
                         memory[dsp]     = (uint8_t)(registers[rd32] & 0xff);
                         memory[dsp + 1] = (uint8_t)((registers[rd32] >> 8) & 0xff);
                         memory[dsp + 2] = (uint8_t)((registers[rd32] >> 16) & 0xff);
                         memory[dsp + 3] = (uint8_t)((registers[rd32] >> 24) & 0xff);
                         break;
-                    case OC_REGREG_POP:
+                    case IT_REGREG_POP:
                         registers[rd32] = (uint32_t)memory[dsp]
                             | ((uint32_t)memory[dsp + 1] << 8)
                             | ((uint32_t)memory[dsp + 2] << 16)
@@ -313,7 +322,7 @@ int main(int argc, char **argv)
                         dsp += 4;
                         break;
                     default:
-                        fprintf(stderr, "Illegal REGREG opcode 0x%x at address 0x%x\n", op, dip);
+                        fprintf(stderr, TXT_ERROR "Illegal REGREG opcode 0x%x at address 0x%x\n", op, dip);
                         exit_code = ERR_ILLINT;
                         goto halted;
                 }
@@ -333,45 +342,45 @@ int main(int argc, char **argv)
                 // Values 4..15 are reserved
                 if (immsize > 3)
                 {
-                    fprintf(stderr, "Illegal REGIMM opcode: invalid immsize %u at address 0x%x\n", immsize, dip);
+                    fprintf(stderr, TXT_ERROR "Illegal REGIMM opcode: Invalid immsize %u at address 0x%x\n", immsize, dip);
                     exit_code = ERR_ILLINT;
                     goto halted;
                 }
 
                 switch (op)
                 {
-                    case OC_REGIMM_ADD:
+                    case IT_REGIMM_ADD:
                         alu_execute(registers, ALU_ADD, r32, imm);
                         break;
-                    case OC_REGIMM_SUB:
+                    case IT_REGIMM_SUB:
                         alu_execute(registers, ALU_SUB, r32, imm);
                         break;
-                    case OC_REGIMM_MUL:
+                    case IT_REGIMM_MUL:
                         alu_execute(registers, ALU_MUL, r32, imm);
                         break;
-                    case OC_REGIMM_DIV:
+                    case IT_REGIMM_DIV:
                         if (imm == 0)
                         {
-                            fprintf(stderr, "Illegal DIV instruction: divide-by-zero at address 0x%x\n", dip);
+                            fprintf(stderr, TXT_ERROR "Illegal DIV instruction: Divide-by-zero at address 0x%x\n", dip);
                             exit_code = ERR_ILLINT;
                             goto halted;
                         }
                         alu_execute(registers, ALU_DIV, r32, imm);
                         break;
-                    case OC_REGIMM_AND:
+                    case IT_REGIMM_AND:
                         alu_execute(registers, ALU_AND, r32, imm);
                         break;
-                    case OC_REGIMM_OR:
+                    case IT_REGIMM_OR:
                         alu_execute(registers, ALU_OR, r32, imm);
                         break;
-                    case OC_REGIMM_XOR:
+                    case IT_REGIMM_XOR:
                         alu_execute(registers, ALU_XOR, r32, imm);
                         break;
-                    case OC_REGIMM_MOV:
+                    case IT_REGIMM_MOV:
                         registers[r32] = imm;
                         break;
                     default:
-                        fprintf(stderr, "Illegal REGIMM opcode 0x%x at address 0x%x\n", op, dip);
+                        fprintf(stderr, TXT_ERROR "Illegal REGIMM opcode 0x%x at address 0x%x\n", op, dip);
                         exit_code = ERR_ILLINT;
                         goto halted;
                 }
@@ -383,33 +392,33 @@ int main(int argc, char **argv)
                 uint32_t imm20 = (buffer[1] & 0xf) | (buffer[2] << 4) | (buffer[3] << 12);
                 switch (op)
                 {
-                    case OC_MEM_LDB:
+                    case IT_MEM_LDB:
                         registers[r32] = memory[imm20];
                         break;
-                    case OC_MEM_STB:
+                    case IT_MEM_STB:
                         memory[imm20] = (uint8_t)(registers[r32] & 0xff);
                         break;
-                    case OC_MEM_LDW:
+                    case IT_MEM_LDW:
                         registers[r32] = (uint16_t)memory[imm20] | ((uint16_t)memory[imm20 + 1] << 8);
                         break;
-                    case OC_MEM_STW:
+                    case IT_MEM_STW:
                         memory[imm20]       = (uint8_t)(registers[r32] & 0xff);
                         memory[imm20 + 1]   = (uint8_t)((registers[r32] >> 8) & 0xff);
                         break;
-                    case OC_MEM_LDD:
+                    case IT_MEM_LDD:
                         registers[r32] = (uint32_t)memory[imm20]
                             | ((uint32_t)memory[imm20 + 1] << 8)
                             | ((uint32_t)memory[imm20 + 2] << 16)
                             | ((uint32_t)memory[imm20 + 3] << 24);
                         break;
-                    case OC_MEM_STD:
+                    case IT_MEM_STD:
                         memory[imm20]     = (uint8_t)(registers[r32] & 0xff);
                         memory[imm20 + 1] = (uint8_t)((registers[r32] >> 8) & 0xff);
                         memory[imm20 + 2] = (uint8_t)((registers[r32] >> 16) & 0xff);
                         memory[imm20 + 3] = (uint8_t)((registers[r32] >> 24) & 0xff);
                         break;
                     default:
-                        fprintf(stderr, "Illegal MEM opcode 0x%x at address 0x%x\n", op, dip);
+                        fprintf(stderr, TXT_ERROR "Illegal MEM opcode 0x%x at address 0x%x\n", op, dip);
                         exit_code = ERR_ILLINT;
                         goto halted;
                 }
@@ -421,34 +430,34 @@ int main(int argc, char **argv)
                 // We continue to avoid "dip += length;"
                 switch (op)
                 {
-                    case OC_BRANCH_JMP:
+                    case IT_BRANCH_JMP:
                         dip = imm20;
                         continue;
-                    case OC_BRANCH_JC:
+                    case IT_BRANCH_JC:
                         JUMP(imm20, dstat & STAT_CF);
                         break;
-                    case OC_BRANCH_JNC:
+                    case IT_BRANCH_JNC:
                         JUMP(imm20, !(dstat & STAT_CF));
                         break;
-                    case OC_BRANCH_JZ:
+                    case IT_BRANCH_JZ:
                         JUMP(imm20, dstat & STAT_ZF);
                         break;
-                    case OC_BRANCH_JNZ:
+                    case IT_BRANCH_JNZ:
                         JUMP(imm20, !(dstat & STAT_ZF));
                         break;
-                    case OC_BRANCH_JO:
+                    case IT_BRANCH_JO:
                         JUMP(imm20, dstat & STAT_OF);
                         break;
-                    case OC_BRANCH_JNO:
+                    case IT_BRANCH_JNO:
                         JUMP(imm20, !(dstat & STAT_OF));
                         break;
-                    case OC_BRANCH_JS:
+                    case IT_BRANCH_JS:
                         JUMP(imm20, dstat & STAT_SF);
                         break;
-                    case OC_BRANCH_JNS:
+                    case IT_BRANCH_JNS:
                         JUMP(imm20, !(dstat & STAT_SF));
                         break;
-                    case OC_BRANCH_CALL:
+                    case IT_BRANCH_CALL:
                     {
                         // Push the address of the next instruction on stack
                         uint32_t return_address = dip + length;
@@ -460,7 +469,7 @@ int main(int argc, char **argv)
                         dip = imm20;
                         continue;
                     }
-                    case OC_BRANCH_RET:
+                    case IT_BRANCH_RET:
                     {
                         uint32_t return_address = (uint32_t)memory[dsp]
                             | ((uint32_t)memory[dsp + 1] << 8)
@@ -471,7 +480,7 @@ int main(int argc, char **argv)
                         continue;
                     }
                     default:
-                        fprintf(stderr, "Illegal BRANCH opcode %x at address %x\n", op, dip);
+                        fprintf(stderr, TXT_ERROR "Illegal BRANCH opcode %x at address %x\n", op, dip);
                         exit_code = ERR_ILLINT;
                         goto halted;
                 }
@@ -480,18 +489,18 @@ int main(int argc, char **argv)
             case IC_MISC:
                 switch (op)
                 {
-                    case OC_MISC_HLT:
+                    case IT_MISC_HLT:
                         goto halted;
-                    case OC_MISC_NOP:
+                    case IT_MISC_NOP:
                         break;
                     default:
-                        fprintf(stderr, "Illegal MISC opcode 0x%x at address 0x%x\n", op, dip);
+                        fprintf(stderr, TXT_ERROR "Illegal MISC opcode 0x%x at address 0x%x\n", op, dip);
                         exit_code = ERR_ILLINT;
                         goto halted;
                 }
                 break;
             default:
-                fprintf(stderr, "Illegal reserved class 0x%x at address 0x%x\n", class, dip);
+                fprintf(stderr, TXT_ERROR "Illegal reserved class 0x%x at address 0x%x\n", class, dip);
                 exit_code = ERR_ILLINT;
                 goto halted;
         }
@@ -500,19 +509,22 @@ int main(int argc, char **argv)
     }
 
 halted:
-    // Print the program state at the end for now (I'll remove this in the future)
 
-    for (int i = 0; i < REG_COUNT; i++)
+    // Will remove this in the future
+    if (flags[2].present)
     {
-        printf("%-14s  0x%-14x  %u\n", reg_names[i], registers[i], registers[i]);
-    }
-
-    printf("\nMemory (non-zero bytes, from 0x00000 to 0x00200):\n");
-    for (int addr = 0; addr < 0x200; addr++)
-    {
-        if (memory[addr] != 0)
+        for (int i = 0; i < REG_COUNT; i++)
         {
-            printf("0x%-12.05x  0x%-14.02x  %c\n", addr, memory[addr], (memory[addr] >= 32 && memory[addr] <= 126) ? memory[addr] : '.');
+            printf("%-14s  0x%-14x  %u\n", reg_names[i], registers[i], registers[i]);
+        }
+
+        printf("\nMemory (non-zero bytes, from 0x00000 to 0x00200):\n");
+        for (int addr = 0; addr < 0x200; addr++)
+        {
+            if (memory[addr] != 0)
+            {
+                printf("0x%-12.05x  0x%-14.02x  %c\n", addr, memory[addr], (memory[addr] >= 32 && memory[addr] <= 126) ? memory[addr] : '.');
+            }
         }
     }
 

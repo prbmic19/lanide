@@ -36,12 +36,12 @@ void disassemble(uint8_t *memory, uint32_t ip, uint32_t end)
             break;
         }
 
-        printf("%8x:   ", ip);
+        printf("   %x:   ", ip);
         print_hex_bytes(memory, ip, length);
         printf("   ");
 
-        uint8_t class = opcode >> 4;
-        uint8_t op = opcode & 0xf;
+        instruction_class_td class = opcode >> 4;
+        instruction_type_td op = opcode & 0xf;
 
         switch (class)
         {
@@ -53,7 +53,7 @@ void disassemble(uint8_t *memory, uint32_t ip, uint32_t end)
                 const char *mnemonics[] = {"add", "sub", "mul", "div", "and", "or", "xor", "not", "mov", "xchg", "push", "pop"};
                 if (op < sizeof(mnemonics) / sizeof(mnemonics[0]))
                 {
-                    if (op == OC_REGREG_NOT || op == OC_REGREG_PUSH || op == OC_REGREG_POP)
+                    if (op == IT_REGREG_NOT || op == IT_REGREG_PUSH || op == IT_REGREG_POP)
                     {
                         printf("%-6s %s", mnemonics[op], reg_names[rd32]);
                     }
@@ -128,7 +128,7 @@ void disassemble(uint8_t *memory, uint32_t ip, uint32_t end)
                 const char *mnemonics[] = {"jmp", "jc", "jnc", "jz", "jnz", "jo", "jno", "js", "jns", "call", "ret"};
                 if (op < sizeof(mnemonics) / sizeof(mnemonics[0]))
                 {
-                    if (op == OC_BRANCH_RET)
+                    if (op == IT_BRANCH_RET)
                     {
                         printf("ret");
                     }
@@ -146,10 +146,10 @@ void disassemble(uint8_t *memory, uint32_t ip, uint32_t end)
             case IC_MISC:
                 switch (op)
                 {
-                    case OC_MISC_HLT:
+                    case IT_MISC_HLT:
                         printf("hlt");
                         break;
-                    case OC_MISC_NOP:
+                    case IT_MISC_NOP:
                         printf("nop");
                         break;
                     default:
@@ -169,13 +169,18 @@ int main(int argc, char **argv)
 {
     char *input_file = NULL;
     flag_td flags[] = {
-        {"--help", NULL, false, false},
-        {"-h", NULL, false, false},
-        {"--all-sections", NULL, false, false}
+        { .name = "--help" },
+        { .name = "-h" },
+        { .name = "--all-sections" }
     };
 
     // Default = input
-    int position = parse_args(argc, argv, flags, 3);
+    int position = parse_args(argc, argv, flags, sizeof(flags) / sizeof(flags[0]));
+    if (position < 0)
+    {
+        fprintf(stderr, TXT_ERROR "Missing input file.\n");
+        return 1;
+    }
     input_file = argv[position];
 
     // -h, --help
@@ -184,12 +189,13 @@ int main(int argc, char **argv)
         printf("Usage: rdisasm [options...] <program.lx>\n\n");
         printf("Options:\n\n");
         printf("    -h, --help          Display this help message.\n");
+        printf("    --all-sections\n    Disassemble all sections.\n");
         return 0;
     }
 
     if (!has_ext(input_file, ".lx"))
     {
-        fprintf(stderr, "Input file must have .lx extension.");
+        fprintf(stderr, TXT_ERROR "Input file must have .lx extension.");
         return 1;
     }
 
@@ -204,7 +210,7 @@ int main(int argc, char **argv)
     size_t header_read = fread(header, 1, MAGIC_BYTES_SIZE, fin);
     if (header_read < MAGIC_BYTES_SIZE || memcmp(header, magic_bytes, MAGIC_BYTES_SIZE) != 0)
     {
-        fprintf(stderr, "Invalid or missing magic bytes.\n");
+        fprintf(stderr, TXT_ERROR "Invalid or missing magic bytes.\n");
         fclose(fin);
         return ERR_MALFORMED;
     }
@@ -212,7 +218,7 @@ int main(int argc, char **argv)
     uint32_t data_offset = 0;
     if (fread(&data_offset, sizeof(uint32_t), 1, fin) != 1)
     {
-        fprintf(stderr, "Failed to read data offset.\n");
+        fprintf(stderr, TXT_ERROR "Failed to read data offset.\n");
         fclose(fin);
         return ERR_MALFORMED;
     }
@@ -228,7 +234,7 @@ int main(int argc, char **argv)
     size_t text_to_read = (size_t)data_offset;
     if (text_to_read > (MEM_SIZE - TEXT_BASE))
     {
-        fprintf(stderr, "Text section too large to fit in memory.\n");
+        fprintf(stderr, TXT_ERROR "Text section too large to fit in memory.\n");
         fclose(fin);
         free(memory);
         return ERR_MALFORMED;
@@ -239,7 +245,7 @@ int main(int argc, char **argv)
     {
         if (feof(fin))
         {
-            fprintf(stderr, "Warning: text section truncated (expected %zu, got %zu)\n", text_to_read, text_read);
+            fprintf(stderr, TXT_WARN "Text section truncated (expected %zu, got %zu)\n", text_to_read, text_read);
         }
         else
         {
@@ -255,20 +261,20 @@ int main(int argc, char **argv)
     size_t data_read = fread(memory + DATA_BASE, 1, data_capacity, fin);
     if (!feof(fin) && data_read == data_capacity)
     {
-        fprintf(stderr, "Warning: data section may have been truncated\n");
+        fprintf(stderr, TXT_WARN "Data section may have been truncated.\n");
     }
 
     fclose(fin);
 
-    printf("Disassembly of %s:\n\n", input_file);
+    printf("Target: %s\n\n", input_file);
 
-    printf("%08x <.text>:\n", TEXT_BASE);
+    printf("Disassembly of section .text:\n\n");
     disassemble(memory, TEXT_BASE, TEXT_BASE + (uint32_t)text_read);
 
     // --all-sections
     if (flags[2].present)
     {
-        printf("\n%08x <.data>:\n", DATA_BASE);
+        printf("\nDisassembly of section .data:\n\n");
         disassemble(memory, DATA_BASE, DATA_BASE + (uint32_t)data_read);
     }
     

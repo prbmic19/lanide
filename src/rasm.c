@@ -36,12 +36,17 @@ int main(int argc, char **argv)
     char *output_file = NULL;
     flag_td flags[] = {
         {"-o", &output_file, true, false},
-        {"--help", NULL, false, false},
-        {"-h", NULL, false, false},
+        { .name = "--help" },
+        { .name = "-h" },
     };
 
     // Default = input
-    int position = parse_args(argc, argv, flags, 3);
+    int position = parse_args(argc, argv, flags, sizeof(flags) / sizeof(flags[0]));
+    if (position < 0)
+    {
+        fprintf(stderr, TXT_ERROR "Missing input file.\n");
+        return 1;
+    }
     input_file = argv[position];
 
     // -h, --help
@@ -54,14 +59,20 @@ int main(int argc, char **argv)
         return 0;
     }
 
+    if (!output_file)
+    {
+        fprintf(stderr, TXT_ERROR "Missing output file.\n");
+        return 1;
+    }
+
     if (!has_ext(input_file, ".asm"))
     {
-        fprintf(stderr, "Input file must have .asm extension.\n");
+        fprintf(stderr, TXT_ERROR "Input file must have .asm extension.\n");
         return 1;
     }
     if (!has_ext(output_file, ".lx"))
     {
-        fprintf(stderr, "Output file must have .lx extension.\n");
+        fprintf(stderr, TXT_ERROR "Output file must have .lx extension.\n");
         return 1;
     }
 
@@ -84,7 +95,7 @@ int main(int argc, char **argv)
     size_t text_size = 0;
     size_t data_size = 0;
 
-    uint8_t current_section = SECT_TEXT;
+    uint16_t current_section = 0xffff;
 
     char line[256] = {0};
     while (fgets(line, sizeof(line), fin))
@@ -97,7 +108,7 @@ int main(int argc, char **argv)
         char mnemonic[32] = {0};
         char operand1[32] = {0};
         char operand2[32] = {0};
-        encoded_instruction_td ei = {0};
+        instruction_td ei = {0};
         bool found = false;
         int n = sscanf(line, "%31s %31[^,], %31s", mnemonic, operand1, operand2);
 
@@ -118,7 +129,7 @@ int main(int argc, char **argv)
             }
             else
             {
-                fprintf(stderr, "Unknown section: %s\n", operand1);
+                fprintf(stderr, TXT_ERROR "Unknown section: %s\n", operand1);
                 return ERR_MALFORMED;
             }
             continue;
@@ -126,7 +137,7 @@ int main(int argc, char **argv)
 
         if (strncmp(operand1, "dip", 3) == 0 || strncmp(operand2, "dip", 3) == 0 || strncmp(operand1, "dstat", 4) == 0 || strncmp(operand2, "dstat", 4) == 0)
         {
-            fprintf(stderr, "Illegal instruction: accessing DIP/DSTAT\n");
+            fprintf(stderr, TXT_ERROR "Illegal instruction: accessing DIP/DSTAT\n");
             return ERR_ILLINT;
         }
 
@@ -170,19 +181,23 @@ int main(int argc, char **argv)
 
         if (!found)
         {
-            fprintf(stderr, "Unknown instruction: %s\n", mnemonic);
+            fprintf(stderr, TXT_ERROR "Unknown instruction: %s\n", mnemonic);
             return ERR_ILLINT;
         }
 
-        if (current_section == SECT_TEXT)
+        switch (current_section)
         {
-            memcpy(text_buf + text_size, ei.bytes, ei.length);
-            text_size += ei.length;
-        }
-        else
-        {
-            memcpy(data_buf + data_size, ei.bytes, ei.length);
-            data_size += ei.length;
+            case SECT_TEXT:
+                memcpy(text_buf + text_size, ei.bytes, ei.length);
+                text_size += ei.length;
+                break;
+            case SECT_DATA:
+                memcpy(data_buf + data_size, ei.bytes, ei.length);
+                data_size += ei.length;
+                break;
+            default:
+                fprintf(stderr, TXT_ERROR "Unknown section ID: %d\n", current_section);
+                return ERR_MALFORMED;
         }
     }
 

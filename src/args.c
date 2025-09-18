@@ -3,6 +3,9 @@
 #include <stdlib.h>
 #include <string.h>
 
+#define ERR_MALFORMED 0x80
+#define TXT_ERROR "\x1b[31merror:\x1b[0m "
+
 int parse_args(int argc, char **argv, flag_td *flags, int flag_count)
 {
     int positional_index = -1;
@@ -16,6 +19,7 @@ int parse_args(int argc, char **argv, flag_td *flags, int flag_count)
             if (strcmp(argv[i], flags[f].name) == 0)
             {
                 found = true;
+                positional_index = i;
 
                 if (flags[f].takes_value)
                 {
@@ -27,8 +31,8 @@ int parse_args(int argc, char **argv, flag_td *flags, int flag_count)
                     }
                     else
                     {
-                        fprintf(stderr, "Error: \"%s\" requires a value.\n", argv[i]);
-                        exit(0x80);
+                        fprintf(stderr, TXT_ERROR "\"%s\" requires a value.\n", argv[i]);
+                        exit(ERR_MALFORMED);
                     }
                 }
                 else
@@ -46,8 +50,8 @@ int parse_args(int argc, char **argv, flag_td *flags, int flag_count)
         }
         else if (!found && argv[i][0] == '-')
         {
-            fprintf(stderr, "Error: Unknown flag \"%s\"\n", argv[i]);
-            exit(0x80);
+            fprintf(stderr, TXT_ERROR "Unknown flag \"%s\"\n", argv[i]);
+            exit(ERR_MALFORMED);
         }
     }
 

@@ -4,7 +4,7 @@
 typedef struct instruction_handler
 {
     const char *mnemonic;
-    encoded_instruction_td (*encode)(const char *, const char *);
+    instruction_td (*encode)(const char *, const char *);
 } instruction_handler_td;
 
 extern const instruction_handler_td instruction_table[];
