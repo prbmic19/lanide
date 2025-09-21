@@ -47,9 +47,9 @@ static bool is_register(const char *operand, int *reg_idx, uint32_t *imm32)
     exit(ERR_MALFORMED);
 }
 
-static instruction_td make_regreg(instruction_type_td it, uint8_t rd32, uint8_t rs32)
+static struct instruction make_regreg(enum instruction_type it, uint8_t rd32, uint8_t rs32)
 {
-    instruction_td ei;
+    struct instruction ei;
     if (it == IT_REGREG_PUSHFD || it == IT_REGREG_POPFD)
     {
         ei.length = 1;
@@ -64,18 +64,18 @@ static instruction_td make_regreg(instruction_type_td it, uint8_t rd32, uint8_t 
     return ei;
 }
 
-static instruction_td make_xregreg(instruction_type_td it, uint8_t rd32, uint8_t rs32)
+static struct instruction make_xregreg(enum instruction_type it, uint8_t rd32, uint8_t rs32)
 {
-    instruction_td ei = { .length = 2 };
+    struct instruction ei = { .length = 2 };
     ei.bytes[0] = (IC_XREGREG << 4) | (it & 0xf);
     ei.bytes[1] = ((rd32 & 0xf) << 4) | (rs32 & 0xf);
     return ei;
 }
 
 // We TRUST that we pass the correct argument for immsize
-static instruction_td make_regimm(instruction_type_td it, uint8_t r32, uint32_t imm, uint8_t immsize)
+static struct instruction make_regimm(enum instruction_type it, uint8_t r32, uint32_t imm, uint8_t immsize)
 {
-    instruction_td ei;
+    struct instruction ei;
     ei.bytes[0] = (IC_REGIMM << 4) | (it & 0xf);
     ei.bytes[1] = ((r32 & 0xf) << 4) | (immsize & 0xf);
     switch (immsize)
@@ -103,9 +103,9 @@ static instruction_td make_regimm(instruction_type_td it, uint8_t r32, uint32_t 
     return ei;
 }
 
-static instruction_td make_mem(instruction_type_td it, uint8_t r32, uint32_t imm20)
+static struct instruction make_mem(enum instruction_type it, uint8_t r32, uint32_t imm20)
 {
-    instruction_td ei = { .length = 4 };
+    struct instruction ei = { .length = 4 };
     ei.bytes[0] = (IC_MEM << 4) | (it & 0xf);
     ei.bytes[1] = ((r32 & 0xf) << 4) | (imm20 & 0xf);
     ei.bytes[2] = (imm20 >> 4) & 0xff;
@@ -113,9 +113,9 @@ static instruction_td make_mem(instruction_type_td it, uint8_t r32, uint32_t imm
     return ei;
 }
 
-static instruction_td make_branch(instruction_type_td it, uint32_t imm20)
+static struct instruction make_branch(enum instruction_type it, uint32_t imm20)
 {
-    instruction_td ei;
+    struct instruction ei;
     if (it == IT_BRANCH_RET)
     {
         ei.length = 1;
@@ -132,9 +132,9 @@ static instruction_td make_branch(instruction_type_td it, uint32_t imm20)
     return ei;
 }
 
-static instruction_td make_xbranch(instruction_type_td it, uint32_t imm20)
+static struct instruction make_xbranch(enum instruction_type it, uint32_t imm20)
 {
-    instruction_td ei = { .length = 4 };
+    struct instruction ei = { .length = 4 };
     ei.bytes[0] = (IC_XBRANCH << 4) | (it & 0xf);
     ei.bytes[1] = imm20 & 0xf;
     ei.bytes[2] = (imm20 >> 4) & 0xff;
@@ -142,9 +142,9 @@ static instruction_td make_xbranch(instruction_type_td it, uint32_t imm20)
     return ei;
 }
 
-static instruction_td make_misc(instruction_type_td it)
+static struct instruction make_misc(enum instruction_type it)
 {
-    instruction_td ei = { .length = 1 };
+    struct instruction ei = { .length = 1 };
     ei.bytes[0] = (IC_MISC << 4) | (it & 0xf);
     return ei;
 }
@@ -371,26 +371,26 @@ ENCODER_DEFINE(test, rd32, src)
     }
 }
 
-ENCODER_DEFINE(push, r32, )
+ENCODER_DEFINE(push, r32, __UNUSED_PARAM(a))
 {
     int r = reg_index(r32);
     _VALIDATE_REG_INDEX(r, r32);
     return make_regreg(IT_REGREG_PUSH, r, 0);
 }
 
-ENCODER_DEFINE(pushfd, , )
+ENCODER_DEFINE(pushfd, __UNUSED_PARAM(a), __UNUSED_PARAM(b))
 {
     return make_regreg(IT_REGREG_PUSHFD, 0, 0);
 }
 
-ENCODER_DEFINE(pop, r32, )
+ENCODER_DEFINE(pop, r32, __UNUSED_PARAM(a))
 {
     int r = reg_index(r32);
     _VALIDATE_REG_INDEX(r, r32);
     return make_regreg(IT_REGREG_POP, r, 0);
 }
 
-ENCODER_DEFINE(popfd, , )
+ENCODER_DEFINE(popfd, __UNUSED_PARAM(a), __UNUSED_PARAM(b))
 {
     return make_regreg(IT_REGREG_POPFD, 0, 0);
 }
@@ -404,7 +404,7 @@ ENCODER_DEFINE(xchg, rd32, rs32)
     return make_xregreg(IT_XREGREG_XCHG, r1, r2);
 }
 
-ENCODER_DEFINE(ldip, r32, )
+ENCODER_DEFINE(ldip, r32, __UNUSED_PARAM(a))
 {
     int r = reg_index(r32);
     _VALIDATE_REG_INDEX(r, r32);
@@ -453,7 +453,7 @@ ENCODER_DEFINE(std, imm20, r32)
     return make_mem(IT_MEM_STD, r, (uint32_t)strtoul(imm20, NULL, 0));
 }
 
-ENCODER_DEFINE(jmp, src, )
+ENCODER_DEFINE(jmp, src, __UNUSED_PARAM(a))
 {
     int r = 0;
     uint32_t imm = 0;
@@ -468,7 +468,7 @@ ENCODER_DEFINE(jmp, src, )
     }
 }
 
-ENCODER_DEFINE(call, src, )
+ENCODER_DEFINE(call, src, __UNUSED_PARAM(a))
 {
     int r = 0;
     uint32_t imm = 0;
@@ -483,92 +483,92 @@ ENCODER_DEFINE(call, src, )
     }
 }
 
-ENCODER_DEFINE(ret, , )
+ENCODER_DEFINE(ret, __UNUSED_PARAM(a), __UNUSED_PARAM(b))
 {
     return make_branch(IT_BRANCH_RET, 0);
 }
 
-ENCODER_DEFINE(jc, imm20, )
+ENCODER_DEFINE(jc, imm20, __UNUSED_PARAM(a))
 {
     return make_xbranch(IT_XBRANCH_JC, (uint32_t)strtoul(imm20, NULL, 0));
 }
 
-ENCODER_DEFINE(jz, imm20, )
+ENCODER_DEFINE(jz, imm20, __UNUSED_PARAM(a))
 {
     return make_xbranch(IT_XBRANCH_JZ, (uint32_t)strtoul(imm20, NULL, 0));
 }
 
-ENCODER_DEFINE(jo, imm20, )
+ENCODER_DEFINE(jo, imm20, __UNUSED_PARAM(a))
 {
     return make_xbranch(IT_XBRANCH_JO, (uint32_t)strtoul(imm20, NULL, 0));
 }
 
-ENCODER_DEFINE(js, imm20, )
+ENCODER_DEFINE(js, imm20, __UNUSED_PARAM(a))
 {
     return make_xbranch(IT_XBRANCH_JS, (uint32_t)strtoul(imm20, NULL, 0));
 }
 
-ENCODER_DEFINE(jnc, imm20, )
+ENCODER_DEFINE(jnc, imm20, __UNUSED_PARAM(a))
 {
     return make_xbranch(IT_XBRANCH_JNC, (uint32_t)strtoul(imm20, NULL, 0));
 }
 
-ENCODER_DEFINE(jnz, imm20, )
+ENCODER_DEFINE(jnz, imm20, __UNUSED_PARAM(a))
 {
     return make_xbranch(IT_XBRANCH_JNZ, (uint32_t)strtoul(imm20, NULL, 0));
 }
 
-ENCODER_DEFINE(jno, imm20, )
+ENCODER_DEFINE(jno, imm20, __UNUSED_PARAM(a))
 {
     return make_xbranch(IT_XBRANCH_JNO, (uint32_t)strtoul(imm20, NULL, 0));
 }
 
-ENCODER_DEFINE(jns, imm20, )
+ENCODER_DEFINE(jns, imm20, __UNUSED_PARAM(a))
 {
     return make_xbranch(IT_XBRANCH_JNS, (uint32_t)strtoul(imm20, NULL, 0));
 }
 
-ENCODER_DEFINE(jg, imm20, )
+ENCODER_DEFINE(jg, imm20, __UNUSED_PARAM(a))
 {
     return make_xbranch(IT_XBRANCH_JG, (uint32_t)strtoul(imm20, NULL, 0));
 }
 
-ENCODER_DEFINE(jge, imm20, )
+ENCODER_DEFINE(jge, imm20, __UNUSED_PARAM(a))
 {
     return make_xbranch(IT_XBRANCH_JGE, (uint32_t)strtoul(imm20, NULL, 0));
 }
 
-ENCODER_DEFINE(jl, imm20, )
+ENCODER_DEFINE(jl, imm20, __UNUSED_PARAM(a))
 {
     return make_xbranch(IT_XBRANCH_JL, (uint32_t)strtoul(imm20, NULL, 0));
 }
 
-ENCODER_DEFINE(jle, imm20, )
+ENCODER_DEFINE(jle, imm20, __UNUSED_PARAM(a))
 {
     return make_xbranch(IT_XBRANCH_JLE, (uint32_t)strtoul(imm20, NULL, 0));
 }
 
-ENCODER_DEFINE(ja, imm20, )
+ENCODER_DEFINE(ja, imm20, __UNUSED_PARAM(a))
 {
     return make_xbranch(IT_XBRANCH_JA, (uint32_t)strtoul(imm20, NULL, 0));
 }
 
-ENCODER_DEFINE(jbe, imm20, )
+ENCODER_DEFINE(jbe, imm20, __UNUSED_PARAM(a))
 {
     return make_xbranch(IT_XBRANCH_JBE, (uint32_t)strtoul(imm20, NULL, 0));
 }
 
-ENCODER_DEFINE(hlt, , )
+ENCODER_DEFINE(hlt, __UNUSED_PARAM(a), __UNUSED_PARAM(b))
 {
     return make_misc(IT_MISC_HLT);
 }
 
-ENCODER_DEFINE(nop, , )
+ENCODER_DEFINE(nop, __UNUSED_PARAM(a), __UNUSED_PARAM(b))
 {
     return make_misc(IT_MISC_NOP);
 }
 
-const instruction_handler_td instruction_table[] = {
+const struct instruction_handler instruction_table[] = {
     ENCODER_ADD(add),
     ENCODER_ADD(sub),
     ENCODER_ADD(mul),

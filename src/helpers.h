@@ -11,23 +11,27 @@
 // RObust BINary
 static const uint8_t magic_bytes[MAGIC_BYTES_SIZE] = {'\x7f', '\x00', '\x00', 'R', 'O', 'B', 'I', 'N'};
 
-#define MEM_SIZE    0x100000            // 1 MiB unified memory
-#define TEXT_BASE   (MEM_SIZE / 8)      // 12.5% into memory
-#define DATA_BASE   (MEM_SIZE / 2)      // 50% into memory
-#define STACK_BASE  (MEM_SIZE - 0x1000) // At the very top, with a little safety margin
+// 1 MiB
+#define MEM_SIZE    0x100000
+#define TEXT_BASE   0x1000
+#define DATA_BASE   (MEM_SIZE / 2)
+#define STACK_BASE  MEM_SIZE
 
-#define ERR_ILLINT      0x7f    // Illegal instruction
-#define ERR_MALFORMED   0x80    // Malformed (generic)
-#define ERR_BOUND       0x81    // Out-of-bounds access
+// Illegal instruction
+#define ERR_ILLINT      0x7f
+// Malformed (generic)
+#define ERR_MALFORMED   0x80
+// Out-of-bounds access
+#define ERR_BOUND       0x81
 
-#define STAT_CF 0x1 // Carry
-#define STAT_ZF 0x2 // Zero
-#define STAT_OF 0x4 // Overflow
-#define STAT_SF 0x8 // Sign
+#define STAT_CF 0x1
+#define STAT_ZF 0x2
+#define STAT_OF 0x4
+#define STAT_SF 0x8
 
 // Reduce repetition!
-#define TXT_ERROR   "\x1b[31merror:\x1b[0m "  // Red
-#define TXT_WARN    "\x1b[35mwarning:\x1b[0m " // Purple
+#define TXT_ERROR   "\x1b[31merror:\x1b[0m "
+#define TXT_WARN    "\x1b[35mwarning:\x1b[0m "
 
 // Sections in memory
 #define SECT_TEXT 0
@@ -38,16 +42,14 @@ static const uint8_t magic_bytes[MAGIC_BYTES_SIZE] = {'\x7f', '\x00', '\x00', 'R
 #define dip     registers[16]
 #define dstat   registers[17]
 
-/* We use the "_td" suffix for typedefs and to avoid clashing with POSIX names */
-
-typedef struct instruction
+struct instruction
 {
     uint8_t bytes[6];
     int length;
-} instruction_td;
+};
 
 // 16 possible classes
-typedef enum instruction_class
+enum instruction_class
 {
     IC_REGREG,
     IC_XREGREG,
@@ -56,10 +58,10 @@ typedef enum instruction_class
     IC_BRANCH,
     IC_XBRANCH,
     IC_MISC = 0xf
-} instruction_class_td;
+};
 
 // 16 possible instructions per class
-typedef enum instruction_type
+enum instruction_type
 {
     IT_REGREG_ADD,
     IT_REGREG_SUB,
@@ -122,10 +124,11 @@ typedef enum instruction_type
 
     IT_MISC_HLT = 0,
     IT_MISC_NOP
-} instruction_type_td;
+};
 
 static inline int get_length(uint8_t opcode, uint8_t byte2)
 {
+    byte2 &= 0xf;
     switch (opcode >> 4)
     {
         case IC_REGREG:
@@ -135,9 +138,9 @@ static inline int get_length(uint8_t opcode, uint8_t byte2)
         case IC_XREGREG:
             return 2;
         case IC_REGIMM:
-            return ((byte2 & 0xf) == 0)
+            return (byte2 == 0)
                 ? 3
-                : ((byte2 & 0xf) == 1)
+                : (byte2 == 1)
                 ? 4
                 : 6;
         case IC_MEM:

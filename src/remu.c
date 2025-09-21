@@ -10,7 +10,7 @@ static const char *reg_names[REG_COUNT] = {
     "dip", "dstat"                              // Instruction pointer, Status/flags
 };
 
-typedef enum alu_op
+enum alu_op
 {
     ALU_ADD,
     ALU_SUB,
@@ -23,10 +23,10 @@ typedef enum alu_op
     ALU_NEG,
     ALU_CMP,
     ALU_TEST
-} alu_op_td;
+};
 
 // Yeah... the ALU instructions implicitly update flags
-static inline void update_status(uint32_t *registers, alu_op_td operation, int32_t result, int32_t lhs, int32_t rhs)
+static inline void update_status(uint32_t registers[], enum alu_op operation, int32_t result, int32_t lhs, int32_t rhs)
 {
     if (result == 0)
     {
@@ -103,7 +103,7 @@ static inline void update_status(uint32_t *registers, alu_op_td operation, int32
     }
 }
 
-static inline void alu_execute(uint32_t *registers, enum alu_op operation, uint8_t rd32, int32_t rhs)
+static inline void alu_execute(uint32_t registers[], enum alu_op operation, uint8_t rd32, int32_t rhs)
 {
     int32_t lhs = registers[rd32];
     int32_t result = registers[rd32];
@@ -149,11 +149,11 @@ static inline void alu_execute(uint32_t *registers, enum alu_op operation, uint8
     update_status(registers, operation, result2, lhs, rhs);
 }
 
-int main(int argc, char **argv)
+int main(int argc, char *argv[])
 {
     int exit_code = 0;
     char *input_file = NULL;
-    flag_td flags[] = {
+    struct flag flags[] = {
         { .name = "--help" },
         { .name = "-h" },
         // Prints reg values and 512 bytes when the program stops.
@@ -163,26 +163,27 @@ int main(int argc, char **argv)
 
     // Default = input
     int position = parse_args(argc, argv, flags, sizeof(flags) / sizeof(flags[0]));
-    if (position < 0)
-    {
-        fprintf(stderr, TXT_ERROR "Missing input file.\n");
-        return 1;
-    }
-    input_file = argv[position];
 
     // -h, --help
     if (flags[0].present || flags[1].present)
     {
-        printf("Usage: remu [options...] <program.lx>\n\n");
-        printf("Options:\n\n");
-        printf("    -h, --help          Display this help message.\n");
-        printf("    --show-state        Display register values and 512 bytes of memory at program end.\n");
+        puts("Usage: remu [options...] <program.lx>\n");
+        puts("Options:\n");
+        puts("    -h, --help          Display this help message.");
+        puts("    --show-state        Display register values and 512 bytes of memory at program end.");
         return 0;
     }
+    
+    if (position < 0)
+    {
+        fputs(TXT_ERROR "Missing input file.\n", stderr);
+        return 1;
+    }
+    input_file = argv[position];
 
     if (!has_ext(input_file, ".lx"))
     {
-        fprintf(stderr, TXT_ERROR "Input file must have .lx extension.");
+        fputs(TXT_ERROR "Input file must have .lx extension.", stderr);
         return 1;
     }
 
@@ -197,7 +198,7 @@ int main(int argc, char **argv)
     size_t header_read = fread(header, 1, MAGIC_BYTES_SIZE, fin);
     if (header_read < MAGIC_BYTES_SIZE || memcmp(header, magic_bytes, MAGIC_BYTES_SIZE) != 0)
     {
-        fprintf(stderr, TXT_ERROR "Invalid or missing magic bytes.\n");
+        fputs(TXT_ERROR "Invalid or missing magic bytes.\n", stderr);
         fclose(fin);
         return ERR_MALFORMED;
     }
@@ -222,7 +223,7 @@ int main(int argc, char **argv)
     size_t text_to_read = (size_t)data_offset;
     if (text_to_read > (MEM_SIZE - TEXT_BASE))
     {   
-        fprintf(stderr, TXT_ERROR "Text section too large to fit in memory.\n");
+        fputs(TXT_ERROR "Text section too large to fit in memory.\n", stderr);
         free(memory);
         fclose(fin);
         return ERR_MALFORMED;
@@ -249,7 +250,7 @@ int main(int argc, char **argv)
     size_t data_read = fread(memory + DATA_BASE, 1, data_capacity, fin);
     if (!feof(fin) && data_read == data_capacity)
     {
-        fprintf(stderr, TXT_WARN "Data section may have been truncated.\n");
+        fputs(TXT_WARN "Data section may have been truncated.\n", stderr);
     }
 
     fclose(fin);
@@ -260,7 +261,7 @@ int main(int argc, char **argv)
 
     while (1)
     {
-        if (dip + 3 >= MEM_SIZE)
+        if (dip + 2 >= MEM_SIZE)
         {
             fprintf(stderr, TXT_ERROR "Instruction pointer out of bounds: 0x%x\n", dip);
             exit_code = ERR_BOUND;
@@ -272,8 +273,8 @@ int main(int argc, char **argv)
         uint8_t buffer[6] = {0};
         memcpy(buffer, memory + dip, length);
 
-        instruction_class_td class = opcode >> 4;
-        instruction_type_td op = opcode & 0xf;
+        enum instruction_class class = opcode >> 4;
+        enum instruction_type op = opcode & 0xf;
 
         switch (class)
         {
@@ -295,7 +296,7 @@ int main(int argc, char **argv)
                     case IT_REGREG_DIV:
                         if (registers[rs32] == 0)
                         {
-                            fprintf(stderr, TXT_ERROR "Illegal DIV instruction: divide-by-zero at address 0x%x\n", dip);
+                            fprintf(stderr, TXT_ERROR "Illegal DIV instruction: Divide-by-zero at address 0x%x\n", dip);
                             exit_code = ERR_ILLINT;
                             goto halted;
                         }
@@ -327,30 +328,30 @@ int main(int argc, char **argv)
                         break;
                     case IT_REGREG_PUSH:
                         dsp -= 4;
-                        memory[dsp]     = (uint8_t)(registers[rd32] & 0xff);
-                        memory[dsp + 1] = (uint8_t)((registers[rd32] >> 8) & 0xff);
-                        memory[dsp + 2] = (uint8_t)((registers[rd32] >> 16) & 0xff);
-                        memory[dsp + 3] = (uint8_t)((registers[rd32] >> 24) & 0xff);
+                        memory[dsp]     = registers[rd32] & 0xff;
+                        memory[dsp + 1] = (registers[rd32] >> 8) & 0xff;
+                        memory[dsp + 2] = (registers[rd32] >> 16) & 0xff;
+                        memory[dsp + 3] = (registers[rd32] >> 24) & 0xff;
                         break;
                     case IT_REGREG_PUSHFD:
                         dsp -= 4;
-                        memory[dsp]     = (uint8_t)(dstat & 0xff);
-                        memory[dsp + 1] = (uint8_t)((dstat >> 8) & 0xff);
-                        memory[dsp + 2] = (uint8_t)((dstat >> 16) & 0xff);
-                        memory[dsp + 3] = (uint8_t)((dstat >> 24) & 0xff);
+                        memory[dsp]     = dstat & 0xff;
+                        memory[dsp + 1] = (dstat >> 8) & 0xff;
+                        memory[dsp + 2] = (dstat >> 16) & 0xff;
+                        memory[dsp + 3] = (dstat >> 24) & 0xff;
                         break;
                     case IT_REGREG_POP:
-                        registers[rd32] = (uint32_t)memory[dsp]
-                            | ((uint32_t)memory[dsp + 1] << 8)
-                            | ((uint32_t)memory[dsp + 2] << 16)
-                            | ((uint32_t)memory[dsp + 3] << 24);
+                        registers[rd32] = memory[dsp]
+                            | (memory[dsp + 1] << 8)
+                            | (memory[dsp + 2] << 16)
+                            | (memory[dsp + 3] << 24);
                         dsp += 4;
                         break;
                     case IT_REGREG_POPFD:
-                        dstat = (uint32_t)memory[dsp]
-                            | ((uint32_t)memory[dsp + 1] << 8)
-                            | ((uint32_t)memory[dsp + 2] << 16)
-                            | ((uint32_t)memory[dsp + 3] << 24);
+                        dstat = memory[dsp]
+                            | (memory[dsp + 1] << 8)
+                            | (memory[dsp + 2] << 16)
+                            | (memory[dsp + 3] << 24);
                         dsp += 4;
                         break;
                     default:
@@ -384,10 +385,10 @@ int main(int argc, char **argv)
                         // Push the address of the next instruction on stack
                         uint32_t return_address = dip + length;
                         dsp -= 4;
-                        memory[dsp]     = (uint8_t)(return_address & 0xff);
-                        memory[dsp + 1] = (uint8_t)((return_address >> 8) & 0xff);
-                        memory[dsp + 2] = (uint8_t)((return_address >> 16) & 0xff);
-                        memory[dsp + 3] = (uint8_t)((return_address >> 24) & 0xff);
+                        memory[dsp]     = return_address & 0xff;
+                        memory[dsp + 1] = (return_address >> 8) & 0xff;
+                        memory[dsp + 2] = (return_address >> 16) & 0xff;
+                        memory[dsp + 3] = (return_address >> 24) & 0xff;
                         dip = registers[rd32];
                         continue;
                     }
@@ -472,26 +473,26 @@ int main(int argc, char **argv)
                         registers[r32] = memory[imm20];
                         break;
                     case IT_MEM_LDW:
-                        registers[r32] = (uint16_t)memory[imm20] | ((uint16_t)memory[imm20 + 1] << 8);
+                        registers[r32] = memory[imm20] | (memory[imm20 + 1] << 8);
                         break;
                     case IT_MEM_LDD:
-                        registers[r32] = (uint32_t)memory[imm20]
-                            | ((uint32_t)memory[imm20 + 1] << 8)
-                            | ((uint32_t)memory[imm20 + 2] << 16)
-                            | ((uint32_t)memory[imm20 + 3] << 24);
+                        registers[r32] = memory[imm20]
+                            | (memory[imm20 + 1] << 8)
+                            | (memory[imm20 + 2] << 16)
+                            | (memory[imm20 + 3] << 24);
                         break;
                     case IT_MEM_STB:
-                        memory[imm20] = (uint8_t)(registers[r32] & 0xff);
+                        memory[imm20] = registers[r32] & 0xff;
                         break;
                     case IT_MEM_STW:
-                        memory[imm20]       = (uint8_t)(registers[r32] & 0xff);
-                        memory[imm20 + 1]   = (uint8_t)((registers[r32] >> 8) & 0xff);
+                        memory[imm20]       = registers[r32] & 0xff;
+                        memory[imm20 + 1]   = (registers[r32] >> 8) & 0xff;
                         break;
                     case IT_MEM_STD:
-                        memory[imm20]     = (uint8_t)(registers[r32] & 0xff);
-                        memory[imm20 + 1] = (uint8_t)((registers[r32] >> 8) & 0xff);
-                        memory[imm20 + 2] = (uint8_t)((registers[r32] >> 16) & 0xff);
-                        memory[imm20 + 3] = (uint8_t)((registers[r32] >> 24) & 0xff);
+                        memory[imm20]     = registers[r32] & 0xff;
+                        memory[imm20 + 1] = (registers[r32] >> 8) & 0xff;
+                        memory[imm20 + 2] = (registers[r32] >> 16) & 0xff;
+                        memory[imm20 + 3] = (registers[r32] >> 24) & 0xff;
                         break;
                     default:
                         fprintf(stderr, TXT_ERROR "Illegal MEM opcode 0x%x at address 0x%x\n", op, dip);
@@ -514,19 +515,19 @@ int main(int argc, char **argv)
                         // Push the address of the next instruction on stack
                         uint32_t return_address = dip + length;
                         dsp -= 4;
-                        memory[dsp]     = (uint8_t)(return_address & 0xff);
-                        memory[dsp + 1] = (uint8_t)((return_address >> 8) & 0xff);
-                        memory[dsp + 2] = (uint8_t)((return_address >> 16) & 0xff);
-                        memory[dsp + 3] = (uint8_t)((return_address >> 24) & 0xff);
+                        memory[dsp]     = return_address & 0xff;
+                        memory[dsp + 1] = (return_address >> 8) & 0xff;
+                        memory[dsp + 2] = (return_address >> 16) & 0xff;
+                        memory[dsp + 3] = (return_address >> 24) & 0xff;
                         dip = imm20;
                         continue;
                     }
                     case IT_BRANCH_RET:
                     {
-                        uint32_t return_address = (uint32_t)memory[dsp]
-                            | ((uint32_t)memory[dsp + 1] << 8)
-                            | ((uint32_t)memory[dsp + 2] << 16)
-                            | ((uint32_t)memory[dsp + 3] << 24);
+                        uint32_t return_address = memory[dsp]
+                            | (memory[dsp + 1] << 8)
+                            | (memory[dsp + 2] << 16)
+                            | (memory[dsp + 3] << 24);
                         dsp += 4;
                         dip = return_address;
                         continue;
@@ -624,7 +625,7 @@ halted:
             printf("%-14s  0x%-14x  %u\n", reg_names[i], registers[i], registers[i]);
         }
 
-        printf("\nMemory (non-zero bytes, from 0x00000 to 0x00200):\n");
+        puts("\nMemory (non-zero bytes, from 0x00000 to 0x00200):");
         for (int addr = 0; addr < 0x200; addr++)
         {
             if (memory[addr] != 0)

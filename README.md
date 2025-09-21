@@ -53,10 +53,10 @@ It adds two numbers and halts. (nothing fancy, but it shows the basics):
 ```asm
 ; examples/addition.asm
 .section .text
-   mov dxa, 2500
-   mov dxt, 7500
-   add dxa, dxt
-   hlt
+    mov dxa, 2500
+    mov dxt, 7500
+    add dxa, dxt
+    hlt
 ```
 Assembling it:
 ```sh
@@ -72,10 +72,10 @@ Target: addition.lx
 
 Disassembly of section .text:
 
-   20000:   17 01 c4 09          mov    dxa,0x9c4
-   20004:   17 11 4c 1d          mov    dxt,0x1d4c
-   20008:   00 01                add    dxa,dxt
-   2000a:   f0                   hlt
+    1000:   27 01 c4 09          mov    dxa,0x9c4
+    1004:   27 11 4c 1d          mov    dxt,0x1d4c
+    1008:   00 01                add    dxa,dxt
+    100a:   f0                   hlt
 ```
 Finally, running it with the emulator, displaying values at the end:
 ```sh
@@ -97,7 +97,6 @@ This is just a playground for now, but here's where I'd like to take it:
 - Better error messages
 - Proper documentation
 - A ~~toy~~ compiler that targets RX
-- 64-bit extension someday
 
 ## License
 This project is licensed under the MIT License. See the [LICENSE](LICENSE) file for details.

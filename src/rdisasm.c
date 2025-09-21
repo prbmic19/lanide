@@ -12,7 +12,7 @@ static const char *reg_names[REG_COUNT] = {
     "dip", "dstat"
 };
 
-static void print_hex_bytes(uint8_t *memory, uint32_t addr, int length)
+static void print_hex_bytes(uint8_t memory[], uint32_t addr, int length)
 {
     int max_length = 6;
     for (int i = 0; i < length && i < max_length; i++)
@@ -25,7 +25,7 @@ static void print_hex_bytes(uint8_t *memory, uint32_t addr, int length)
     }
 }
 
-static void disassemble(uint8_t *memory, uint32_t ip, uint32_t end)
+static void disassemble(uint8_t memory[], uint32_t ip, uint32_t end)
 {
     while (ip < end)
     {
@@ -36,12 +36,12 @@ static void disassemble(uint8_t *memory, uint32_t ip, uint32_t end)
             break;
         }
 
-        printf("   %x:   ", ip);
+        printf("   %5x:   ", ip);
         print_hex_bytes(memory, ip, length);
-        printf("   ");
+        fputs("   ", stdout);
 
-        instruction_class_td class = opcode >> 4;
-        instruction_type_td op = opcode & 0xf;
+        enum instruction_class class = opcode >> 4;
+        enum instruction_type op = opcode & 0xf;
 
         switch (class)
         {
@@ -59,7 +59,7 @@ static void disassemble(uint8_t *memory, uint32_t ip, uint32_t end)
                     }
                     else if (op == IT_REGREG_PUSHFD || op == IT_REGREG_POPFD)
                     {
-                        printf(mnemonics[op]);
+                        fputs(mnemonics[op], stdout);
                     }
                     else
                     {
@@ -117,7 +117,7 @@ static void disassemble(uint8_t *memory, uint32_t ip, uint32_t end)
                 const char *mnemonics[] = {"add", "sub", "mul", "div", "and", "or", "xor", "mov", "cmp", "test"};
                 if (op < sizeof(mnemonics) / sizeof(mnemonics[0]))
                 {
-                    printf("%-6s %s,0x%x", mnemonics[op], reg_names[r32], imm);
+                    printf("%-6s %s,%#x", mnemonics[op], reg_names[r32], imm);
                 }
                 else
                 {
@@ -135,11 +135,11 @@ static void disassemble(uint8_t *memory, uint32_t ip, uint32_t end)
                 {
                     if (mnemonics[op][0] == 's')
                     {
-                        printf("%-6s 0x%x,%s", mnemonics[op], imm20, reg_names[r32]);
+                        printf("%-6s %#x,%s", mnemonics[op], imm20, reg_names[r32]);
                     }
                     else
                     {
-                        printf("%-6s %s,0x%x", mnemonics[op], reg_names[r32], imm20);
+                        printf("%-6s %s,%#x", mnemonics[op], reg_names[r32], imm20);
                     }
                 }
                 else
@@ -156,11 +156,11 @@ static void disassemble(uint8_t *memory, uint32_t ip, uint32_t end)
                 {
                     if (op == IT_BRANCH_RET)
                     {
-                        puts("ret");
+                        fputs("ret", stdout);
                     }
                     else
                     {
-                        printf("%-6s 0x%x", mnemonics[op], imm20);
+                        printf("%-6s %#x", mnemonics[op], imm20);
                     }
                 }
                 else
@@ -175,7 +175,7 @@ static void disassemble(uint8_t *memory, uint32_t ip, uint32_t end)
                 const char *mnemonics[] = {"jc", "jz", "jo", "js", "jnc", "jnz", "jno", "jns", "jg", "jge", "jl", "jle", "ja", "jbe"};
                 if (op < sizeof(mnemonics) / sizeof(mnemonics[0]))
                 {
-                    printf("%-6s 0x%x", mnemonics[op], imm20);
+                    printf("%-6s %#x", mnemonics[op], imm20);
                 }
                 else
                 {
@@ -187,10 +187,10 @@ static void disassemble(uint8_t *memory, uint32_t ip, uint32_t end)
                 switch (op)
                 {
                     case IT_MISC_HLT:
-                        printf("hlt");
+                        fputs("hlt", stdout);
                         break;
                     case IT_MISC_NOP:
-                        printf("nop");
+                        fputs("nop", stdout);
                         break;
                     default:
                         BAD_INSTRUCTION();
@@ -205,10 +205,10 @@ static void disassemble(uint8_t *memory, uint32_t ip, uint32_t end)
     }
 }
 
-int main(int argc, char **argv)
+int main(int argc, char *argv[])
 {
     char *input_file = NULL;
-    flag_td flags[] = {
+    struct flag flags[] = {
         { .name = "--help" },
         { .name = "-h" },
         { .name = "--all-sections" }
@@ -216,26 +216,27 @@ int main(int argc, char **argv)
 
     // Default = input
     int position = parse_args(argc, argv, flags, sizeof(flags) / sizeof(flags[0]));
-    if (position < 0)
-    {
-        fprintf(stderr, TXT_ERROR "Missing input file.\n");
-        return 1;
-    }
-    input_file = argv[position];
 
     // -h, --help
     if (flags[0].present || flags[1].present)
     {
-        printf("Usage: rdisasm [options...] <program.lx>\n\n");
-        printf("Options:\n\n");
-        printf("    -h, --help          Display this help message.\n");
-        printf("    --all-sections\n    Disassemble all sections.\n");
+        puts("Usage: rdisasm [options...] <program.lx>\n");
+        puts("Options:\n");
+        puts("    -h, --help          Display this help message.");
+        puts("    --all-sections      Disassemble all sections.");
         return 0;
     }
 
+    if (position < 0)
+    {
+        fputs(TXT_ERROR "Missing input file.\n", stderr);
+        return 1;
+    }
+    input_file = argv[position];
+
     if (!has_ext(input_file, ".lx"))
     {
-        fprintf(stderr, TXT_ERROR "Input file must have .lx extension.");
+        fputs(TXT_ERROR "Input file must have .lx extension.", stderr);
         return 1;
     }
 
@@ -250,7 +251,7 @@ int main(int argc, char **argv)
     size_t header_read = fread(header, 1, MAGIC_BYTES_SIZE, fin);
     if (header_read < MAGIC_BYTES_SIZE || memcmp(header, magic_bytes, MAGIC_BYTES_SIZE) != 0)
     {
-        fprintf(stderr, TXT_ERROR "Invalid or missing magic bytes.\n");
+        fputs(TXT_ERROR "Invalid or missing magic bytes.\n", stderr);
         fclose(fin);
         return ERR_MALFORMED;
     }
@@ -258,7 +259,7 @@ int main(int argc, char **argv)
     uint32_t data_offset = 0;
     if (fread(&data_offset, sizeof(uint32_t), 1, fin) != 1)
     {
-        fprintf(stderr, TXT_ERROR "Failed to read data offset.\n");
+        fputs(TXT_ERROR "Failed to read data offset.\n", stderr);
         fclose(fin);
         return ERR_MALFORMED;
     }
@@ -274,7 +275,7 @@ int main(int argc, char **argv)
     size_t text_to_read = (size_t)data_offset;
     if (text_to_read > (MEM_SIZE - TEXT_BASE))
     {
-        fprintf(stderr, TXT_ERROR "Text section too large to fit in memory.\n");
+        fputs(TXT_ERROR "Text section too large to fit in memory.\n", stderr);
         fclose(fin);
         free(memory);
         return ERR_MALFORMED;
@@ -301,20 +302,20 @@ int main(int argc, char **argv)
     size_t data_read = fread(memory + DATA_BASE, 1, data_capacity, fin);
     if (!feof(fin) && data_read == data_capacity)
     {
-        fprintf(stderr, TXT_WARN "Data section may have been truncated.\n");
+        fputs(TXT_WARN "Data section may have been truncated.\n", stderr);
     }
 
     fclose(fin);
 
     printf("Target: %s\n\n", input_file);
 
-    printf("Disassembly of section .text:\n\n");
+    puts("Disassembly of section .text:\n");
     disassemble(memory, TEXT_BASE, TEXT_BASE + (uint32_t)text_read);
 
     // --all-sections
     if (flags[2].present)
     {
-        printf("\nDisassembly of section .data:\n\n");
+        puts("\nDisassembly of section .data:\n");
         disassemble(memory, DATA_BASE, DATA_BASE + (uint32_t)data_read);
     }
     

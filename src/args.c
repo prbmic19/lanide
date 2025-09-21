@@ -6,7 +6,7 @@
 #define ERR_MALFORMED 0x80
 #define TXT_ERROR "\x1b[31merror:\x1b[0m "
 
-int parse_args(int argc, char **argv, flag_td *flags, int flag_count)
+int parse_args(int argc, char *argv[], struct flag flags[], int flag_count)
 {
     int positional_index = -1;
 
@@ -47,7 +47,7 @@ int parse_args(int argc, char **argv, flag_td *flags, int flag_count)
         {
             positional_index = i;
         }
-        if (!found && argv[i][0] == '-')
+        else if (!found && argv[i][0] == '-')
         {
             fprintf(stderr, TXT_ERROR "Unknown flag \"%s\"\n", argv[i]);
             exit(ERR_MALFORMED);

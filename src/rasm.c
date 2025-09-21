@@ -29,11 +29,11 @@ static char *trim(char *string)
     return string;
 }
 
-int main(int argc, char **argv)
+int main(int argc, char *argv[])
 {
     char *input_file = NULL;
     char *output_file = NULL;
-    flag_td flags[] = {
+    struct flag flags[] = {
         {"-o", &output_file, true, false},
         { .name = "--help" },
         { .name = "-h" },
@@ -41,37 +41,38 @@ int main(int argc, char **argv)
 
     // Default = input
     int position = parse_args(argc, argv, flags, sizeof(flags) / sizeof(flags[0]));
-    if (position < 0)
-    {
-        fprintf(stderr, TXT_ERROR "Missing input file.\n");
-        return 1;
-    }
-    input_file = argv[position];
 
     // -h, --help
     if (flags[1].present || flags[2].present)
     {
-        printf("Usage: rasm [options...] <input.asm>\n\n");
-        printf("Options:\n\n");
-        printf("    -h, --help          Display this help message.\n");
-        printf("    -o <output.lx>      Write the output to <output.lx>.\n");
+        puts("Usage: rasm [options...] <input.asm>\n");
+        puts("Options:\n");
+        puts("    -h, --help          Display this help message.");
+        puts("    -o <output.lx>      Write the output to <output.lx>.");
         return 0;
     }
 
+    if (position < 0)
+    {
+        fputs(TXT_ERROR "Missing input file.\n", stderr);
+        return 1;
+    }
+    input_file = argv[position];
+
     if (!output_file)
     {
-        fprintf(stderr, TXT_ERROR "Missing output file.\n");
+        fputs(TXT_ERROR "Missing output file.\n", stderr);
         return 1;
     }
 
     if (!has_ext(input_file, ".asm"))
     {
-        fprintf(stderr, TXT_ERROR "Input file must have .asm extension.\n");
+        fputs(TXT_ERROR "Input file must have .asm extension.\n", stderr);
         return 1;
     }
     if (!has_ext(output_file, ".lx"))
     {
-        fprintf(stderr, TXT_ERROR "Output file must have .lx extension.\n");
+        fputs(TXT_ERROR "Output file must have .lx extension.\n", stderr);
         return 1;
     }
 
@@ -84,8 +85,8 @@ int main(int argc, char **argv)
     }
 
     // Allocate just half a MEM_SIZE for both.
-    uint8_t *text_buf = (uint8_t *)calloc(MEM_SIZE >> 1, 1);
-    uint8_t *data_buf = (uint8_t *)calloc(MEM_SIZE >> 1, 1);
+    uint8_t *text_buf = (uint8_t *)calloc(MEM_SIZE / 2, 1);
+    uint8_t *data_buf = (uint8_t *)calloc(MEM_SIZE / 2, 1);
     if (!text_buf || !data_buf)
     {
         perror("calloc");
@@ -107,7 +108,7 @@ int main(int argc, char **argv)
         char mnemonic[32] = {0};
         char operand1[32] = {0};
         char operand2[32] = {0};
-        instruction_td ei = {0};
+        struct instruction ei = {0};
         bool found = false;
         int n = sscanf(line, "%31s %31[^,], %31s", mnemonic, operand1, operand2);
 
@@ -136,7 +137,7 @@ int main(int argc, char **argv)
 
         if (strncmp(operand1, "dip", 3) == 0 || strncmp(operand2, "dip", 3) == 0 || strncmp(operand1, "dstat", 4) == 0 || strncmp(operand2, "dstat", 4) == 0)
         {
-            fprintf(stderr, TXT_ERROR "Illegal instruction: accessing DIP/DSTAT\n");
+            fputs(TXT_ERROR "Illegal instruction: accessing DIP/DSTAT\n", stderr);
             return ERR_ILLINT;
         }
 
