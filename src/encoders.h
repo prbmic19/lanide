@@ -1,11 +1,18 @@
+/** Declarations for instruction encoding. */
+
 #pragma once
 #include <stdint.h>
 
-struct instruction_handler
+// Encoder function type.
+typedef struct instruction (*encoder_td)(const char *destination, const char *source);
+
+// Maps mnemonic to an encoder.
+// Multiple mnemonics can have the same encoder, thus having the same opcode.
+struct instruction_entry
 {
     const char *mnemonic;
-    struct instruction (*encode)(const char *, const char *);
+    encoder_td encode;
 };
 
-extern const struct instruction_handler instruction_table[];
-extern const uint8_t instruction_count;
+extern const struct instruction_entry instruction_table[];
+extern const uint16_t instruction_count;

@@ -1,7 +1,6 @@
-#include "helpers.h"
+#include "definitions.h"
 #include "args.h"
 
-#define REG_COUNT 18
 static const char *reg_names[REG_COUNT] = {
     "dxa", "dxt", "dxc",                        // Accumulator, temporary, counter
     "dd0", "dd1", "dd2", "dd3", "dd4", "dd5",   // Data/arguments
@@ -10,6 +9,7 @@ static const char *reg_names[REG_COUNT] = {
     "dip", "dstat"                              // Instruction pointer, Status/flags
 };
 
+// Enumeration of ALU operations used in `update_status()` and `alu_execute()`.
 enum alu_op
 {
     ALU_ADD,
@@ -25,7 +25,7 @@ enum alu_op
     ALU_TEST
 };
 
-// Yeah... the ALU instructions implicitly update flags
+// Updates CF, ZF, OF, and SF based on the result and operands given.
 static inline void update_status(uint32_t registers[], enum alu_op operation, int32_t result, int32_t lhs, int32_t rhs)
 {
     if (result == 0)
@@ -103,6 +103,7 @@ static inline void update_status(uint32_t registers[], enum alu_op operation, in
     }
 }
 
+// Executes ALU operations, subsequently updating flags.
 static inline void alu_execute(uint32_t registers[], enum alu_op operation, uint8_t rd32, int32_t rhs)
 {
     int32_t lhs = registers[rd32];
@@ -155,9 +156,9 @@ int main(int argc, char *argv[])
     char *input_file = NULL;
     struct flag flags[] = {
         { .name = "--help" },
-        { .name = "-h" },
-        // Prints reg values and 512 bytes when the program stops.
-        // This is temporarily. Will remove when we get a nice debugger/dumper
+        { .name = "-h" }, // Alias of --help
+        // Prints reg values when the program stops.
+        // This is temporarily. Will remove when we get a nice debugger/dumper.
         { .name = "--show-state" }
     };
 
@@ -169,21 +170,21 @@ int main(int argc, char *argv[])
     {
         puts("Usage: remu [options...] <program.lx>\n");
         puts("Options:\n");
-        puts("    -h, --help          Display this help message.");
-        puts("    --show-state        Display register values and 512 bytes of memory at program end.");
+        puts("    -h, --help          Display this help message");
+        puts("    --dump-regs         Display register values at program end");
         return 0;
     }
     
     if (position < 0)
     {
-        fputs(TXT_ERROR "Missing input file.\n", stderr);
+        ERROR("Missing input file.");
         return 1;
     }
     input_file = argv[position];
 
-    if (!has_ext(input_file, ".lx"))
+    if (!ends_with(input_file, ".lx"))
     {
-        fputs(TXT_ERROR "Input file must have .lx extension.", stderr);
+        ERROR("Input file must have .lx extension.");
         return 1;
     }
 
@@ -194,19 +195,21 @@ int main(int argc, char *argv[])
         return 1;
     }
 
+    // Parse magic bytes
     char header[MAGIC_BYTES_SIZE];
     size_t header_read = fread(header, 1, MAGIC_BYTES_SIZE, fin);
     if (header_read < MAGIC_BYTES_SIZE || memcmp(header, magic_bytes, MAGIC_BYTES_SIZE) != 0)
     {
-        fputs(TXT_ERROR "Invalid or missing magic bytes.\n", stderr);
+        ERROR("Invalid or missing magic bytes.");
         fclose(fin);
         return ERR_MALFORMED;
     }
 
+    // Parse data offset
     uint32_t data_offset = 0;
     if (fread(&data_offset, sizeof(uint32_t), 1, fin) != 1)
     {
-        fprintf(stderr, TXT_ERROR "Failed to read data offset.\n");
+        ERROR("Failed to read data offset.");
         fclose(fin);
         return ERR_MALFORMED;
     }
@@ -219,11 +222,11 @@ int main(int argc, char *argv[])
         return 1;
     }
 
-    // Load .text at TEXT_BASE
+    // Parse .text section and load at TEXT_BASE
     size_t text_to_read = (size_t)data_offset;
     if (text_to_read > (MEM_SIZE - TEXT_BASE))
     {   
-        fputs(TXT_ERROR "Text section too large to fit in memory.\n", stderr);
+        ERROR("Text section too large to fit in memory.");
         free(memory);
         fclose(fin);
         return ERR_MALFORMED;
@@ -234,7 +237,7 @@ int main(int argc, char *argv[])
     {
         if (feof(fin))
         {
-            fprintf(stderr, TXT_WARN "Text section truncated (expected %zu, got %zu)\n", text_to_read, text_read);
+            WARN_FMT("Text section truncated (expected %zu, got %zu)", text_to_read, text_read);
         }
         else
         {
@@ -245,37 +248,40 @@ int main(int argc, char *argv[])
         }
     }
 
-    // Load .data at DATA_BASE
+    // Parse .data section and load at DATA_BASE
     size_t data_capacity = MEM_SIZE - DATA_BASE;
     size_t data_read = fread(memory + DATA_BASE, 1, data_capacity, fin);
     if (!feof(fin) && data_read == data_capacity)
     {
-        fputs(TXT_WARN "Data section may have been truncated.\n", stderr);
+        WARN("Data section may have been truncated.");
     }
 
     fclose(fin);
 
-    uint32_t registers[18] = {0};
-    dip = TEXT_BASE;
-    dsp = STACK_BASE;
+    // Initialize registers. Set `dsp` to STACK_BASE and `dip` to TEXT_BASE.
+    uint32_t registers[18] = { [10] = STACK_BASE, [16] = TEXT_BASE };
 
     while (1)
     {
-        if (dip + 2 >= MEM_SIZE)
+        /* Fetch */
+        
+        uint8_t opcode = memory[dip];
+        int length = get_length(opcode, memory[dip + 1]);
+
+        if (dip + length > MEM_SIZE)
         {
-            fprintf(stderr, TXT_ERROR "Instruction pointer out of bounds: 0x%x\n", dip);
+            ERROR_FMT("Instruction pointer out of bounds: %#x", dip);
             exit_code = ERR_BOUND;
             break;
         }
 
-        uint8_t opcode = memory[dip];
-        int length = get_length(opcode, memory[dip + 1]);
-        uint8_t buffer[6] = {0};
+        uint8_t buffer[MAX_INSTRUCTION_LENGTH] = {0};
         memcpy(buffer, memory + dip, length);
 
         enum instruction_class class = opcode >> 4;
         enum instruction_type op = opcode & 0xf;
 
+        /* Decode and execute */
         switch (class)
         {
             case IC_REGREG:
@@ -296,7 +302,7 @@ int main(int argc, char *argv[])
                     case IT_REGREG_DIV:
                         if (registers[rs32] == 0)
                         {
-                            fprintf(stderr, TXT_ERROR "Illegal DIV instruction: Divide-by-zero at address 0x%x\n", dip);
+                            ERROR_FMT("Illegal DIV instruction: divide-by-zero at address %#x", dip);
                             exit_code = ERR_ILLINT;
                             goto halted;
                         }
@@ -355,7 +361,7 @@ int main(int argc, char *argv[])
                         dsp += 4;
                         break;
                     default:
-                        fprintf(stderr, TXT_ERROR "Illegal REGREG opcode 0x%x at address 0x%x\n", op, dip);
+                        ERROR_FMT("Illegal IC_REGREG instruction %#x at address %#x", op, dip);
                         exit_code = ERR_ILLINT;
                         goto halted;
                 }
@@ -393,7 +399,7 @@ int main(int argc, char *argv[])
                         continue;
                     }
                     default:
-                        fprintf(stderr, TXT_ERROR "Illegal XREGREG opcode 0x%x at address 0x%x\n", op, dip);
+                        ERROR_FMT("Illegal IC_XREGREG instruction %#x at address %#x", op, dip);
                         exit_code = ERR_ILLINT;
                         goto halted;
                 }
@@ -413,7 +419,7 @@ int main(int argc, char *argv[])
                 // Values 4..15 are reserved
                 if (immsize > 3)
                 {
-                    fprintf(stderr, TXT_ERROR "Illegal REGIMM opcode: Invalid immsize %u at address 0x%x\n", immsize, dip);
+                    ERROR_FMT("Illegal IC_REGIMM instruction: invalid immsize %u at address %#x", immsize, dip);
                     exit_code = ERR_ILLINT;
                     goto halted;
                 }
@@ -432,7 +438,7 @@ int main(int argc, char *argv[])
                     case IT_REGIMM_DIV:
                         if (imm == 0)
                         {
-                            fprintf(stderr, TXT_ERROR "Illegal DIV instruction: Divide-by-zero at address 0x%x\n", dip);
+                            ERROR_FMT("Illegal DIV instruction: divide-by-zero at address %#x", dip);
                             exit_code = ERR_ILLINT;
                             goto halted;
                         }
@@ -457,7 +463,7 @@ int main(int argc, char *argv[])
                         alu_execute(registers, ALU_TEST, r32, imm);
                         break;
                     default:
-                        fprintf(stderr, TXT_ERROR "Illegal REGIMM opcode 0x%x at address 0x%x\n", op, dip);
+                        ERROR_FMT("Illegal IC_REGIMM instruction %#x at address %#x", op, dip);
                         exit_code = ERR_ILLINT;
                         goto halted;
                 }
@@ -495,7 +501,7 @@ int main(int argc, char *argv[])
                         memory[imm20 + 3] = (registers[r32] >> 24) & 0xff;
                         break;
                     default:
-                        fprintf(stderr, TXT_ERROR "Illegal MEM opcode 0x%x at address 0x%x\n", op, dip);
+                        ERROR_FMT("Illegal IC_MEM instruction %#x at address %#x", op, dip);
                         exit_code = ERR_ILLINT;
                         goto halted;
                 }
@@ -533,7 +539,7 @@ int main(int argc, char *argv[])
                         continue;
                     }
                     default:
-                        fprintf(stderr, TXT_ERROR "Illegal BRANCH opcode %x at address %x\n", op, dip);
+                        ERROR_FMT("Illegal IC_BRANCH instruction %#x at address %#x", op, dip);
                         exit_code = ERR_ILLINT;
                         goto halted;
                 }
@@ -587,7 +593,7 @@ int main(int argc, char *argv[])
                         JUMP(imm20, (dstat & STAT_CF) && (dstat & STAT_ZF));
                         break;
                     default:
-                        fprintf(stderr, TXT_ERROR "Illegal XBRANCH opcode %x at address %x\n", op, dip);
+                        ERROR_FMT("Illegal IC_BRANCH instruction %#x at address %#x", op, dip);
                         exit_code = ERR_ILLINT;
                         goto halted;
                 }
@@ -601,13 +607,13 @@ int main(int argc, char *argv[])
                     case IT_MISC_NOP:
                         break;
                     default:
-                        fprintf(stderr, TXT_ERROR "Illegal MISC opcode 0x%x at address 0x%x\n", op, dip);
+                        ERROR_FMT("Illegal IC_MISC instruction %#x at address %#x", op, dip);
                         exit_code = ERR_ILLINT;
                         goto halted;
                 }
                 break;
             default:
-                fprintf(stderr, TXT_ERROR "Illegal reserved class 0x%x at address 0x%x\n", class, dip);
+                ERROR_FMT("Illegal reserved class %#x at address %#x", class, dip);
                 exit_code = ERR_ILLINT;
                 goto halted;
         }
@@ -617,21 +623,12 @@ int main(int argc, char *argv[])
 
 halted:
 
-    // Will remove this in the future
+    // Will remove this in the future.
     if (flags[2].present)
     {
         for (int i = 0; i < REG_COUNT; i++)
         {
             printf("%-14s  0x%-14x  %u\n", reg_names[i], registers[i], registers[i]);
-        }
-
-        puts("\nMemory (non-zero bytes, from 0x00000 to 0x00200):");
-        for (int addr = 0; addr < 0x200; addr++)
-        {
-            if (memory[addr] != 0)
-            {
-                printf("0x%-12.05x  0x%-14.02x  %c\n", addr, memory[addr], (memory[addr] >= 32 && memory[addr] <= 126) ? memory[addr] : '.');
-            }
         }
     }
 

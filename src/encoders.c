@@ -1,10 +1,12 @@
-#include "helpers.h"
+/** Implementation of encoders for instructions. */
+
+#include "definitions.h"
 #include "encoders.h"
 
-#define ENCODER_DEFINE(mnemonic, operand1, operand2) struct instruction enc_##mnemonic(const char *operand1, const char *operand2)
+// Macro to define encoders.
+#define ENCODER_DEFINE(mnemonic, destination, source) struct instruction enc_##mnemonic(const char *destination, const char *source)
 #define ENCODER_ADD(mnemonic) {#mnemonic, enc_##mnemonic}
 
-#define REG_COUNT 18
 static const char *reg_names[REG_COUNT] = {
     "dxa", "dxt", "dxc",                        // Accumulator, temporary, counter
     "dd0", "dd1", "dd2", "dd3", "dd4", "dd5",   // Data/arguments
@@ -13,6 +15,7 @@ static const char *reg_names[REG_COUNT] = {
     "dip", "dstat"                              // Instruction pointer, Status/flags
 };
 
+// Returns the index of a register. Returns -1 if the argument passed is not a valid register name.
 static int reg_index(const char *reg)
 {
     for (int i = 0; i < REG_COUNT; i++)
@@ -25,8 +28,10 @@ static int reg_index(const char *reg)
     return -1;
 }
 
+// Checks if the operand is a register or not, and sets the appropriate variable.
 static bool is_register(const char *operand, int *reg_idx, uint32_t *imm32)
 {
+    // Check if it's a register, if so, return true.
     int index = reg_index(operand);
     if (index != -1)
     {
@@ -36,17 +41,19 @@ static bool is_register(const char *operand, int *reg_idx, uint32_t *imm32)
 
     char *endptr;
     uint32_t imm = (uint32_t)strtoul(operand, &endptr, 0);
-    // Fully consumed = valid immediate
+    // If it was fully consumed, it must be an immediate
     if (*endptr == '\0')
     {
         *imm32 = imm;
         return false;
     }
 
-    fprintf(stderr, "Error! Invalid operand: %s\n", operand);
+    // The operand is neither a register or an immediate.
+    ERROR_FMT("Invalid operand: %s", operand);
     exit(ERR_MALFORMED);
 }
 
+// Encodes IC_REGREG instructions.
 static struct instruction make_regreg(enum instruction_type it, uint8_t rd32, uint8_t rs32)
 {
     struct instruction ei;
@@ -64,6 +71,7 @@ static struct instruction make_regreg(enum instruction_type it, uint8_t rd32, ui
     return ei;
 }
 
+// Encodes IC_XREGREG instructions.
 static struct instruction make_xregreg(enum instruction_type it, uint8_t rd32, uint8_t rs32)
 {
     struct instruction ei = { .length = 2 };
@@ -72,7 +80,7 @@ static struct instruction make_xregreg(enum instruction_type it, uint8_t rd32, u
     return ei;
 }
 
-// We TRUST that we pass the correct argument for immsize
+// Encodes IC_REGIMM instructions.
 static struct instruction make_regimm(enum instruction_type it, uint8_t r32, uint32_t imm, uint8_t immsize)
 {
     struct instruction ei;
@@ -97,12 +105,13 @@ static struct instruction make_regimm(enum instruction_type it, uint8_t r32, uin
             ei.bytes[5] = (imm >> 24) & 0xff;
             break;
         default:
-            fprintf(stderr, TXT_ERROR "Invalid immsize: %u\n", immsize);
+            ERROR_FMT("Invalid immsize: %u", immsize);
             exit(ERR_MALFORMED);
     }
     return ei;
 }
 
+// Encodes IC_MEM instructions.
 static struct instruction make_mem(enum instruction_type it, uint8_t r32, uint32_t imm20)
 {
     struct instruction ei = { .length = 4 };
@@ -113,6 +122,7 @@ static struct instruction make_mem(enum instruction_type it, uint8_t r32, uint32
     return ei;
 }
 
+// Encodes IC_BRANCH instructions.
 static struct instruction make_branch(enum instruction_type it, uint32_t imm20)
 {
     struct instruction ei;
@@ -132,6 +142,7 @@ static struct instruction make_branch(enum instruction_type it, uint32_t imm20)
     return ei;
 }
 
+// Encodes IC_XBRANCH instructions.
 static struct instruction make_xbranch(enum instruction_type it, uint32_t imm20)
 {
     struct instruction ei = { .length = 4 };
@@ -142,12 +153,18 @@ static struct instruction make_xbranch(enum instruction_type it, uint32_t imm20)
     return ei;
 }
 
+// Encodes IC_MISC instructions.
 static struct instruction make_misc(enum instruction_type it)
 {
     struct instruction ei = { .length = 1 };
     ei.bytes[0] = (IC_MISC << 4) | (it & 0xf);
     return ei;
 }
+
+/*
+    The code below defines the encoder for each mnemonic.
+    Some mnemonics are overloaded, encoding different classes based on the operand.
+*/
 
 ENCODER_DEFINE(add, rd32, src)
 {
@@ -568,19 +585,22 @@ ENCODER_DEFINE(nop, __UNUSED_PARAM(a), __UNUSED_PARAM(b))
     return make_misc(IT_MISC_NOP);
 }
 
-const struct instruction_handler instruction_table[] = {
-    ENCODER_ADD(add),
-    ENCODER_ADD(sub),
-    ENCODER_ADD(mul),
-    ENCODER_ADD(div),
-    ENCODER_ADD(and),
-    ENCODER_ADD(or),
-    ENCODER_ADD(xor),
-    ENCODER_ADD(not),
-    ENCODER_ADD(mov),
-    ENCODER_ADD(cmp),
-    ENCODER_ADD(test),
-    ENCODER_ADD(push),
+// Mnemonic to encoder mapping.
+const struct instruction_entry instruction_table[] = {
+    {"add", enc_add},
+    {"sub", enc_sub},
+    {"mul", enc_mul},
+    {"div", enc_div},
+    {"and", enc_and},
+    {"or", enc_or},
+    {"xor", enc_xor},
+    {"not", enc_not},
+    {"neg", enc_neg},
+    {"mov", enc_mov},
+    {"cmp", enc_cmp},
+    {"test", enc_test},
+    {"push", enc_push},
+    // Continue doing the thing above. After you've done it, remove the ENCODER_ADD() macro.
     ENCODER_ADD(pushfd),
     ENCODER_ADD(pop),
     ENCODER_ADD(popfd),
@@ -616,4 +636,6 @@ const struct instruction_handler instruction_table[] = {
     ENCODER_ADD(hlt),
     ENCODER_ADD(nop),
 };
-const uint8_t instruction_count = sizeof(instruction_table) / sizeof(instruction_table[0]);
+
+// The number of instructions. Includes aliases.
+const uint16_t instruction_count = sizeof(instruction_table) / sizeof(instruction_table[0]);

@@ -1,8 +1,11 @@
-#include "helpers.h"
+/** Implements the assembler, outputting Lanide Extended machine code. */
+
+#include "definitions.h"
 #include "encoders.h"
 #include "args.h"
 #include <ctype.h>
 
+// Internal function for trimming a line of source code.
 static char *trim(char *string)
 {
     char *end = NULL;
@@ -34,45 +37,47 @@ int main(int argc, char *argv[])
     char *input_file = NULL;
     char *output_file = NULL;
     struct flag flags[] = {
-        {"-o", &output_file, true, false},
         { .name = "--help" },
-        { .name = "-h" },
+        { .name = "-h" }, // Alias of --help
+        { .name = "-o", .value = &output_file, .takes_value = true },
     };
 
-    // Default = input
+    // Parse arguments passed.
+    // An argument not tied to a flag is expected to be the input file.
     int position = parse_args(argc, argv, flags, sizeof(flags) / sizeof(flags[0]));
 
     // -h, --help
     if (flags[1].present || flags[2].present)
     {
-        puts("Usage: rasm [options...] <input.asm>\n");
+        puts("Usage: rasm [options] <input.asm>\n");
         puts("Options:\n");
-        puts("    -h, --help          Display this help message.");
-        puts("    -o <output.lx>      Write the output to <output.lx>.");
+        puts("    -h, --help          Display this help message");
+        puts("    -o <output.lx>      Write the assembled machine code to output file");
         return 0;
     }
 
     if (position < 0)
     {
-        fputs(TXT_ERROR "Missing input file.\n", stderr);
+        ERROR("Missing input file.");
         return 1;
     }
     input_file = argv[position];
 
     if (!output_file)
     {
-        fputs(TXT_ERROR "Missing output file.\n", stderr);
+        ERROR("Missing output file.");
         return 1;
     }
 
-    if (!has_ext(input_file, ".asm"))
+    // Validate their extensions.
+    if (!ends_with(input_file, ".asm"))
     {
-        fputs(TXT_ERROR "Input file must have .asm extension.\n", stderr);
+        ERROR("Input file must have have .asm extension.");
         return 1;
     }
-    if (!has_ext(output_file, ".lx"))
+    if (!ends_with(output_file, ".lx"))
     {
-        fputs(TXT_ERROR "Output file must have .lx extension.\n", stderr);
+        ERROR("Output file must have .lx extension.");
         return 1;
     }
 
@@ -84,7 +89,7 @@ int main(int argc, char *argv[])
         return 1;
     }
 
-    // Allocate just half a MEM_SIZE for both.
+    // Allocate space for the .text and .data sections
     uint8_t *text_buf = (uint8_t *)calloc(MEM_SIZE / 2, 1);
     uint8_t *data_buf = (uint8_t *)calloc(MEM_SIZE / 2, 1);
     if (!text_buf || !data_buf)
@@ -95,82 +100,96 @@ int main(int argc, char *argv[])
     size_t text_size = 0;
     size_t data_size = 0;
 
+    // ID of the current section.
     uint16_t current_section = 0xffff;
 
     char line[256] = {0};
     while (fgets(line, sizeof(line), fin))
     {
+        // Skip comments and newlines.
         if (*trim(line) == ';' || *trim(line) == '\n')
         {
             continue;
         }
 
         char mnemonic[32] = {0};
-        char operand1[32] = {0};
-        char operand2[32] = {0};
+        char destination[32] = {0};
+        char source[32] = {0};
         struct instruction ei = {0};
         bool found = false;
-        int n = sscanf(line, "%31s %31[^,], %31s", mnemonic, operand1, operand2);
 
+        // Parse the line
+        int n = sscanf(line, "%31s %31[^,], %31s", mnemonic, destination, source);
         if (n <= 0)
         {
             continue;
         }
 
-        if (strcmp(mnemonic, ".section") == 0)
+        // Change the section
+        if (STR_EQUAL_LEN(mnemonic, ".section", 8))
         {
-            if (strncmp(operand1, ".text", 5) == 0)
+            if (STR_EQUAL_LEN(destination, ".text", 5))
             {
                 current_section = SECT_TEXT;
             }
-            else if (strncmp(operand1, ".data", 5) == 0)
+            else if (STR_EQUAL_LEN(destination, ".data", 5))
             {
                 current_section = SECT_DATA;
             }
             else
             {
-                fprintf(stderr, TXT_ERROR "Unknown section: %s\n", operand1);
+                ERROR_FMT("Unknown section: %s", destination);
                 return ERR_MALFORMED;
             }
             continue;
         }
 
-        if (strncmp(operand1, "dip", 3) == 0 || strncmp(operand2, "dip", 3) == 0 || strncmp(operand1, "dstat", 4) == 0 || strncmp(operand2, "dstat", 4) == 0)
+        // Uh oh! Illegal instruction! These cannot be accessed as an operand.
+        if (
+            STR_EQUAL_LEN(destination, "dip", 3)
+            || STR_EQUAL_LEN(destination, "dstat", 4)
+            || STR_EQUAL_LEN(source, "dip", 3)
+            || STR_EQUAL_LEN(source, "dstat", 4)
+        )
         {
-            fputs(TXT_ERROR "Illegal instruction: accessing DIP/DSTAT\n", stderr);
+            ERROR("Illegal instruction: accessing DIP/DSTAT");
             return ERR_ILLINT;
         }
 
         // Fine for now, but this will get inefficient pretty quickly as the instruction set grows.
-        for (uint8_t i = 0; i < instruction_count; i++)
+        // TODO: optimize this
+        for (uint16_t i = 0; i < instruction_count; i++)
         {
             if (strcmp(mnemonic, instruction_table[i].mnemonic) == 0)
             {
-                ei = instruction_table[i].encode(operand1, operand2);
+                ei = instruction_table[i].encode(destination, source);
                 found = true;
                 break;
             }
         }
 
-        if (strcmp(mnemonic, ".byte") == 0)
+        // Emit a byte
+        if (STR_EQUAL_LEN(mnemonic, ".byte", 5))
         {
             ei.length = 1;
-            ei.bytes[0] = strtoul(operand1, NULL, 0) & 0xff;
+            ei.bytes[0] = strtoul(destination, NULL, 0) & 0xff;
             found = true;
         }
 
-        if (strcmp(mnemonic, ".word") == 0)
+        // Emit a word (2 bytes)
+        if (STR_EQUAL_LEN(mnemonic, ".word", 5))
         {
-            unsigned long value = strtoul(operand1, NULL, 0);
+            unsigned long value = strtoul(destination, NULL, 0);
             ei.length = 2;
             ei.bytes[0] = value & 0xff;
             ei.bytes[1] = (value >> 8) & 0xff;
             found = true;
         }
 
-        if (strcmp(mnemonic, ".dword") == 0)
+        // Emit a dword (4 bytes)
+        if (STR_EQUAL_LEN(mnemonic, ".dword", 6))
         {
-            unsigned long value = strtoul(operand1, NULL, 0);
+            unsigned long value = strtoul(destination, NULL, 0);
             ei.length = 4;
             ei.bytes[0] = value & 0xff;
             ei.bytes[1] = (value >> 8) & 0xff;
@@ -181,10 +200,11 @@ int main(int argc, char *argv[])
 
         if (!found)
         {
-            fprintf(stderr, TXT_ERROR "Unknown instruction: %s\n", mnemonic);
+            ERROR_FMT("Unknown mnemonic: %s", mnemonic);
             return ERR_ILLINT;
         }
 
+        // Write the buffers to their respective sections
         switch (current_section)
         {
             case SECT_TEXT:
@@ -196,16 +216,22 @@ int main(int argc, char *argv[])
                 data_size += ei.length;
                 break;
             default:
-                fprintf(stderr, TXT_ERROR "Unknown section ID: %d\n", current_section);
+                ERROR_FMT("Unknown section ID: %d", current_section);
                 return ERR_MALFORMED;
         }
     }
 
-    // Writes [magic][data_offset][text][data]
+    // Write the magic bytes
     fwrite(magic_bytes, 1, MAGIC_BYTES_SIZE, fout);
+
+    // Write the offset of .data
     uint32_t data_offset = (uint32_t)text_size;
     fwrite(&data_offset, sizeof(uint32_t), 1, fout);
+
+    // Write the contents of .text
     fwrite(text_buf, 1, text_size, fout);
+
+    // Write the contents of .data
     fwrite(data_buf, 1, data_size, fout);
 
     fclose(fin);

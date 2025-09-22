@@ -1,8 +1,8 @@
-#include "helpers.h"
+#include "definitions.h"
 #include "args.h"
 
-#define BAD_INSTRUCTION() printf("(bad)")
-#define REG_COUNT 18
+// Option to toggle colored display
+static bool colored_display = false;
 
 static const char *reg_names[REG_COUNT] = {
     "dxa", "dxt", "dxc",
@@ -12,19 +12,75 @@ static const char *reg_names[REG_COUNT] = {
     "dip", "dstat"
 };
 
+/* These functions add color to a string or a number using ANSI color codes, only if `colored_display` is set. */
+
+const char *color(const char *string, const char *color)
+{
+    if (!colored_display)
+    {
+        return string;
+    }
+
+    static char buffer[128] = {0};
+    snprintf(buffer, sizeof(buffer), "%s%s\x1b[0m", color, string);
+    return buffer;
+}
+
+const char *color_mnemonic(const char *mnemonic)
+{
+    static char buffer[32];
+    char padded[16];
+    const char *format = colored_display ? "\x1b[33m%s\x1b[0m" : "%s";
+
+    snprintf(padded, sizeof(padded), "%-7s", mnemonic);
+    snprintf(buffer, sizeof(buffer), format, padded);
+    return buffer;
+}
+
+const char *color_num(size_t number, const char *format, const char *color)
+{
+    static char buffer[128];
+    buffer[0] = '\0';
+    if (colored_display)
+    {
+        snprintf(buffer, sizeof(buffer), "%s", color);
+    }
+
+    size_t offset = strlen(buffer);
+    snprintf(buffer + offset, sizeof(buffer) - offset, format, number);
+
+    if (colored_display)
+    {
+        strncat(buffer, "\x1b[0m", sizeof(buffer) - strlen(buffer) - 1);
+    }
+
+    return buffer;
+}
+
+// Mnemonics as yellow
+#define MNEMONIC(mnemonic)  color_mnemonic(mnemonic)
+// Registers as blue
+#define REG(reg)            color(reg, "\x1b[34m")
+// Immediates and addresses as high intensity green
+#define IMM(imm)            color_num(imm, "%#x", "\x1b[92m")
+
+// Macro to print "(bad)" in case a bad instruction was detected
+#define BAD_INSTRUCTION() fputs(MNEMONIC("(bad)"), stdout)
+
+// Prints the raw encoded hex of the instruction at address `addr`.
 static void print_hex_bytes(uint8_t memory[], uint32_t addr, int length)
 {
-    int max_length = 6;
-    for (int i = 0; i < length && i < max_length; i++)
+    for (int i = 0; i < length && i < MAX_INSTRUCTION_LENGTH; i++)
     {
         printf("%02x ", memory[addr + i]);
     }
-    for (int i = length; i < max_length; i++)
+    for (int i = length; i < MAX_INSTRUCTION_LENGTH; i++)
     {
-        printf("   ");
+        fputs("   ", stdout);
     }
 }
 
+// Disassembles a range of memory and prints. Start from `ip` and ending at `end`.
 static void disassemble(uint8_t memory[], uint32_t ip, uint32_t end)
 {
     while (ip < end)
@@ -36,9 +92,9 @@ static void disassemble(uint8_t memory[], uint32_t ip, uint32_t end)
             break;
         }
 
-        printf("   %5x:   ", ip);
+        printf("   %s:\t", color_num(ip, "%#5x", "\x1b[92m"));
         print_hex_bytes(memory, ip, length);
-        fputs("   ", stdout);
+        putchar('\t');
 
         enum instruction_class class = opcode >> 4;
         enum instruction_type op = opcode & 0xf;
@@ -55,15 +111,15 @@ static void disassemble(uint8_t memory[], uint32_t ip, uint32_t end)
                 {
                     if (op == IT_REGREG_NOT || op == IT_REGREG_NEG || op == IT_REGREG_PUSH || op == IT_REGREG_POP)
                     {
-                        printf("%-6s %s", mnemonics[op], reg_names[rd32]);
+                        printf("%-7s %s", MNEMONIC(mnemonics[op]), REG(reg_names[rd32]));
                     }
                     else if (op == IT_REGREG_PUSHFD || op == IT_REGREG_POPFD)
                     {
-                        fputs(mnemonics[op], stdout);
+                        fputs(MNEMONIC(mnemonics[op]), stdout);
                     }
                     else
                     {
-                        printf("%-6s %s,%s", mnemonics[op], reg_names[rd32], reg_names[rs32]);
+                        printf("%-7s %s,%s", MNEMONIC(mnemonics[op]), REG(reg_names[rd32]), REG(reg_names[rs32]));
                     }
                 }
                 else
@@ -82,11 +138,11 @@ static void disassemble(uint8_t memory[], uint32_t ip, uint32_t end)
                 {
                     if (op == IT_XREGREG_XCHG)
                     {
-                        printf("%-6s %s,%s", mnemonics[op], reg_names[rd32], reg_names[rs32]);
+                        printf("%-7s %s,%s", MNEMONIC(mnemonics[op]), REG(reg_names[rd32]), REG(reg_names[rs32]));
                     }
                     else
                     {
-                        printf("%-6s %s", mnemonics[op], reg_names[rd32]);
+                        printf("%-7s %s", MNEMONIC(mnemonics[op]), REG(reg_names[rd32]));
                     }
                 }
                 else
@@ -107,7 +163,7 @@ static void disassemble(uint8_t memory[], uint32_t ip, uint32_t end)
                     ? raw32 & 0xffff
                     : raw32;
 
-                // Values 4..15 are reserved
+                // Values 4..15 are reserved.
                 if (immsize > 3)
                 {
                     BAD_INSTRUCTION();
@@ -117,7 +173,7 @@ static void disassemble(uint8_t memory[], uint32_t ip, uint32_t end)
                 const char *mnemonics[] = {"add", "sub", "mul", "div", "and", "or", "xor", "mov", "cmp", "test"};
                 if (op < sizeof(mnemonics) / sizeof(mnemonics[0]))
                 {
-                    printf("%-6s %s,%#x", mnemonics[op], reg_names[r32], imm);
+                    printf("%-7s %s,%s", MNEMONIC(mnemonics[op]), REG(reg_names[r32]), IMM(imm));
                 }
                 else
                 {
@@ -135,11 +191,11 @@ static void disassemble(uint8_t memory[], uint32_t ip, uint32_t end)
                 {
                     if (mnemonics[op][0] == 's')
                     {
-                        printf("%-6s %#x,%s", mnemonics[op], imm20, reg_names[r32]);
+                        printf("%-7s %s,%s", MNEMONIC(mnemonics[op]), IMM(imm20), REG(reg_names[r32]));
                     }
                     else
                     {
-                        printf("%-6s %s,%#x", mnemonics[op], reg_names[r32], imm20);
+                        printf("%-7s %s,%s", MNEMONIC(mnemonics[op]), REG(reg_names[r32]), IMM(imm20));
                     }
                 }
                 else
@@ -160,7 +216,7 @@ static void disassemble(uint8_t memory[], uint32_t ip, uint32_t end)
                     }
                     else
                     {
-                        printf("%-6s %#x", mnemonics[op], imm20);
+                        printf("%-7s %s", MNEMONIC(mnemonics[op]), IMM(imm20));
                     }
                 }
                 else
@@ -175,7 +231,7 @@ static void disassemble(uint8_t memory[], uint32_t ip, uint32_t end)
                 const char *mnemonics[] = {"jc", "jz", "jo", "js", "jnc", "jnz", "jno", "jns", "jg", "jge", "jl", "jle", "ja", "jbe"};
                 if (op < sizeof(mnemonics) / sizeof(mnemonics[0]))
                 {
-                    printf("%-6s %#x", mnemonics[op], imm20);
+                    printf("%-7s %s", MNEMONIC(mnemonics[op]), IMM(imm20));
                 }
                 else
                 {
@@ -187,10 +243,10 @@ static void disassemble(uint8_t memory[], uint32_t ip, uint32_t end)
                 switch (op)
                 {
                     case IT_MISC_HLT:
-                        fputs("hlt", stdout);
+                        fputs(MNEMONIC("hlt"), stdout);
                         break;
                     case IT_MISC_NOP:
-                        fputs("nop", stdout);
+                        fputs(MNEMONIC("nop"), stdout);
                         break;
                     default:
                         BAD_INSTRUCTION();
@@ -210,8 +266,10 @@ int main(int argc, char *argv[])
     char *input_file = NULL;
     struct flag flags[] = {
         { .name = "--help" },
-        { .name = "-h" },
-        { .name = "--all-sections" }
+        { .name = "-h" },   // Alias of --help
+        { .name = "--all-sections" },
+        { .name = "--color" },
+        { .name = "-c" },   // Alias of --color
     };
 
     // Default = input
@@ -220,23 +278,24 @@ int main(int argc, char *argv[])
     // -h, --help
     if (flags[0].present || flags[1].present)
     {
-        puts("Usage: rdisasm [options...] <program.lx>\n");
+        puts("Usage: rdisasm [options] <program.lx>\n");
         puts("Options:\n");
-        puts("    -h, --help          Display this help message.");
-        puts("    --all-sections      Disassemble all sections.");
+        puts("    -h, --help            Display this help message");
+        puts("    --all-sections        Disassemble all sections");
+        puts("    -c, --color           Display disassembly output with color");
         return 0;
     }
 
     if (position < 0)
     {
-        fputs(TXT_ERROR "Missing input file.\n", stderr);
+        ERROR("Missing input file.");
         return 1;
     }
     input_file = argv[position];
 
-    if (!has_ext(input_file, ".lx"))
+    if (!ends_with(input_file, ".lx"))
     {
-        fputs(TXT_ERROR "Input file must have .lx extension.", stderr);
+        ERROR("Input file must have .lx extension.");
         return 1;
     }
 
@@ -247,19 +306,21 @@ int main(int argc, char *argv[])
         return 1;
     }
 
+    // Parse magic bytes
     uint8_t header[MAGIC_BYTES_SIZE];
     size_t header_read = fread(header, 1, MAGIC_BYTES_SIZE, fin);
     if (header_read < MAGIC_BYTES_SIZE || memcmp(header, magic_bytes, MAGIC_BYTES_SIZE) != 0)
     {
-        fputs(TXT_ERROR "Invalid or missing magic bytes.\n", stderr);
+        ERROR("Invalid or missing magic bytes.");
         fclose(fin);
         return ERR_MALFORMED;
     }
 
+    // Parse data offset
     uint32_t data_offset = 0;
     if (fread(&data_offset, sizeof(uint32_t), 1, fin) != 1)
     {
-        fputs(TXT_ERROR "Failed to read data offset.\n", stderr);
+        ERROR("Failed to read data offset.");
         fclose(fin);
         return ERR_MALFORMED;
     }
@@ -272,10 +333,11 @@ int main(int argc, char *argv[])
         return 1;
     }
 
+    // Parse .text section and load at TEXT_BASE
     size_t text_to_read = (size_t)data_offset;
     if (text_to_read > (MEM_SIZE - TEXT_BASE))
     {
-        fputs(TXT_ERROR "Text section too large to fit in memory.\n", stderr);
+        ERROR("Text section too large to fit in memory.");
         fclose(fin);
         free(memory);
         return ERR_MALFORMED;
@@ -286,7 +348,7 @@ int main(int argc, char *argv[])
     {
         if (feof(fin))
         {
-            fprintf(stderr, TXT_WARN "Text section truncated (expected %zu, got %zu)\n", text_to_read, text_read);
+            WARN_FMT("Text section truncated (expected %zu, got %zu)", text_to_read, text_read);
         }
         else
         {
@@ -297,15 +359,18 @@ int main(int argc, char *argv[])
         }
     }
 
-    // Load .data at DATA_BASE
+    // Parse .data section and load at DATA_BASE
     size_t data_capacity = MEM_SIZE - DATA_BASE;
     size_t data_read = fread(memory + DATA_BASE, 1, data_capacity, fin);
     if (!feof(fin) && data_read == data_capacity)
     {
-        fputs(TXT_WARN "Data section may have been truncated.\n", stderr);
+        WARN("Data section may have been truncated.");
     }
 
     fclose(fin);
+
+    // -c, --color
+    colored_display = flags[3].present || flags[4].present;
 
     printf("Target: %s\n\n", input_file);
 

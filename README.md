@@ -2,8 +2,9 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-red.svg)](LICENSE)
 
 > [!WARNING]
-> This is still incomplete/experimental, and everything is subject to change. Expect jank.
+> This is still incomplete/experimental, and everything is subject to change.
 
+## Introduction
 Lanide Robust Extended (**RX**) is the 32-bit extension of my original 16-bit Lanide Robust Native ISA. 
 It comes with everything you need to mess around with RX programs, from writing code to running and inspecting binaries.
 
@@ -15,14 +16,8 @@ I built this mostly out of curiosity—I wanted to actually *see* how ISAs, asse
 Most RISC designs stick to fixed 32-bit instruction widths. RX doesn't.
 Instead, it goes with variable-length instructions so you get tighter code density without making decoding a nightmare.
 
-### Philosophy
-- Still RISC at heart: load/store only, regular formats, and a small, consistent set of flags (CF, ZF, OF, SF)
-- No wasted bytes: immediates aren't cramped into awkward bit fields
-- Readable encoding: easy to follow for anyone writing an assembler or hacking on the emulator
-- Consistent flags: all ALU ops update CF, ZF, OF, and SF in a predictable way
-
 ## Tools
-RX ships with three main tools, all written in C:
+RX currently ships with three main tools:
 - Assembler (`rasm`): turns RX assembly into `.lx` binaries
 - Emulator (`remu`): runs those `.lx` programs instruction by instruction
 - Disassembler (`rdisasm`): dumps `.lx` binaries in a GNU `objdump`-style, showing addresses, raw bytes, and mnemonics side by side
@@ -30,9 +25,9 @@ RX ships with three main tools, all written in C:
 ## Build
 
 ### Prerequisites
-- git
-- GCC
-- Make
+You'll need the following tools installed:
+- [https://gcc.gnu.org/](GCC)
+- [https://www.gnu.org/software/make/](Make)
 
 Clone the repo and run `make` (cross-platform: works on Linux/macOS and Windows):
 ```sh
@@ -48,7 +43,7 @@ make clean
 ```
 
 ## Example
-Here's a tiny RX program taken from `examples/addition.asm`.
+Here's a tiny RX assembly program taken from `examples/addition.asm`.
 It adds two numbers and halts. (nothing fancy, but it shows the basics):
 ```asm
 ; examples/addition.asm
@@ -62,7 +57,7 @@ Assembling it:
 ```sh
 ./build/rasm examples/addition.asm -o addition.lx
 ```
-Disassembling the output:
+Disassembling the output (you can optionally add color to the disassembly):
 ```sh
 ./build/rdisasm addition.lx
 ```
@@ -72,10 +67,10 @@ Target: addition.lx
 
 Disassembly of section .text:
 
-    1000:   27 01 c4 09          mov    dxa,0x9c4
-    1004:   27 11 4c 1d          mov    dxt,0x1d4c
-    1008:   00 01                add    dxa,dxt
-    100a:   f0                   hlt
+   0x1000:	27 01 c4 09       	mov     dxa,0x9c4
+   0x1004:	27 11 4c 1d       	mov     dxt,0x1d4c
+   0x1008:	00 01             	add     dxa,dxt
+   0x100a:	f0                	hlt    
 ```
 Finally, running it with the emulator, displaying values at the end:
 ```sh
