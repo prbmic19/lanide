@@ -7,10 +7,17 @@
 #include <string.h>
 #include <stdint.h>
 #include <stdbool.h>
+#include <errno.h>
 
 #define MAGIC_BYTES_SIZE 8
 // Magic bytes put and expected at the start of every .lx file
 static const uint8_t magic_bytes[MAGIC_BYTES_SIZE] = {'\x7f', '\x00', '\x00', 'R', 'O', 'B', 'I', 'N'};
+
+/* Versions of each file */
+
+#define RASM_VERSION    "0.2.3"
+#define RDISASM_VERSION "0.2.3"
+#define REMU_VERSION    "0.2.9"
 
 // Amount of memory each process gets
 #define MEM_SIZE    0x100000
@@ -28,14 +35,31 @@ static const uint8_t magic_bytes[MAGIC_BYTES_SIZE] = {'\x7f', '\x00', '\x00', 'R
 // Out-of-bounds access error
 #define ERR_BOUND       0x81
 
-// Carry flag - set when an unsigned arithmetic operation overflows the destination size.
-#define STAT_CF 0x1
-// Zero flag - set when the result of the operation is zero.
-#define STAT_ZF 0x2
-// Overflow flag - set when a signed arithmetic operation produces a result too big for the signed range.
-#define STAT_OF 0x4
-// Sign flag - reflects the sign (most significant) bit, i.e., if OF is set, then the sign bit must be set as well.
-#define STAT_SF 0x8
+/* Implementation of x86 flags */
+// Names such as RB<n> are reserved bits, and n denotes what bit they are. 
+
+#define FLAG_CF     0x1
+#define FLAG_RB1    0x2
+#define FLAG_PF     0x4
+#define FLAG_RB3    0x8
+#define FLAG_AF     0x10
+#define FLAG_RB5    0x20
+#define FLAG_ZF     0x40
+#define FLAG_SF     0x80
+#define FLAG_TF     0x100
+#define FLAG_IF     0x200
+#define FLAG_DF     0x400
+#define FLAG_OF     0x800
+#define FLAG_IOPL1  0x1000
+#define FLAG_IOPL2  0x2000
+#define FLAG_NT     0x4000
+#define FLAG_RB15   0x8000
+#define FLAG_RF     0x10000
+#define FLAG_VM     0x20000
+#define FLAG_AC     0x40000
+#define FLAG_VIF    0x80000
+#define FLAG_VIP    0x100000
+#define FLAG_ID     0x200000
 
 /* Macros to print errors and warns */
 
@@ -57,7 +81,7 @@ static const uint8_t magic_bytes[MAGIC_BYTES_SIZE] = {'\x7f', '\x00', '\x00', 'R
 
 #define dsp     registers[10]
 #define dip     registers[16]
-#define dstat   registers[17]
+#define dflags  registers[17]
 
 // Current maximum length of instructions.
 #define MAX_INSTRUCTION_LENGTH 6
@@ -74,6 +98,7 @@ struct instruction
 
 // Enumeration of instruction classes. Maximum of 16.
 // This will get stored as the higher nibble in the opcode.
+// NOT stored alphabetically.
 enum instruction_class
 {
     IC_REGREG,
@@ -87,66 +112,69 @@ enum instruction_class
 
 // Enumeration of instruction types. Maximum of 16 per class.
 // This will get stored as the lower nibble in the opcode.
+// Arranged alphabetically by instruction type name.
 enum instruction_type
 {
     IT_REGREG_ADD,
-    IT_REGREG_SUB,
-    IT_REGREG_MUL,
-    IT_REGREG_DIV,
     IT_REGREG_AND,
-    IT_REGREG_OR,
-    IT_REGREG_XOR,
-    IT_REGREG_NOT,
-    IT_REGREG_NEG,
-    IT_REGREG_MOV,
     IT_REGREG_CMP,
-    IT_REGREG_TEST,
-    IT_REGREG_PUSH,
-    IT_REGREG_PUSHFD,
+    IT_REGREG_DIV,
+    IT_REGREG_MOV,
+    IT_REGREG_MUL,
+    IT_REGREG_NEG,
+    IT_REGREG_NOT,
+    IT_REGREG_OR,
     IT_REGREG_POP,
     IT_REGREG_POPFD,
+    IT_REGREG_PUSH,
+    IT_REGREG_PUSHFD,
+    IT_REGREG_SUB,
+    IT_REGREG_TEST,
+    IT_REGREG_XOR,
 
-    IT_XREGREG_XCHG = 0,
-    IT_XREGREG_LDIP,
+    IT_XREGREG_CALL = 0,
     IT_XREGREG_JMP,
-    IT_XREGREG_CALL,
+    IT_XREGREG_LDIP,
+    IT_XREGREG_XCHG,
 
     IT_REGIMM_ADD = 0,
-    IT_REGIMM_SUB,
-    IT_REGIMM_MUL,
-    IT_REGIMM_DIV,
     IT_REGIMM_AND,
-    IT_REGIMM_OR,
-    IT_REGIMM_XOR,
-    IT_REGIMM_MOV,
     IT_REGIMM_CMP,
+    IT_REGIMM_DIV,
+    IT_REGIMM_MOV,
+    IT_REGIMM_MUL,
+    IT_REGIMM_OR,
+    IT_REGIMM_SUB,
     IT_REGIMM_TEST,
+    IT_REGIMM_XOR,
 
     IT_MEM_LDB = 0,
-    IT_MEM_LDW,
     IT_MEM_LDD,
+    IT_MEM_LDW,
     IT_MEM_STB,
-    IT_MEM_STW,
     IT_MEM_STD,
+    IT_MEM_STW,
 
-    IT_BRANCH_JMP = 0,
-    IT_BRANCH_CALL,
+    IT_BRANCH_CALL = 0,
+    IT_BRANCH_JMP,
     IT_BRANCH_RET,
 
-    IT_XBRANCH_JC = 0,
-    IT_XBRANCH_JZ,
-    IT_XBRANCH_JO,
-    IT_XBRANCH_JS,
-    IT_XBRANCH_JNC,
-    IT_XBRANCH_JNZ,
-    IT_XBRANCH_JNO,
-    IT_XBRANCH_JNS,
+    IT_XBRANCH_JA = 0,
+    IT_XBRANCH_JAE,
+    IT_XBRANCH_JB,
+    IT_XBRANCH_JBE,
+    IT_XBRANCH_JE,
     IT_XBRANCH_JG,
     IT_XBRANCH_JGE,
     IT_XBRANCH_JL,
     IT_XBRANCH_JLE,
-    IT_XBRANCH_JA,
-    IT_XBRANCH_JBE,
+    IT_XBRANCH_JNO,
+    IT_XBRANCH_JNE,
+    IT_XBRANCH_JNP,
+    IT_XBRANCH_JNS,
+    IT_XBRANCH_JO,
+    IT_XBRANCH_JP,
+    IT_XBRANCH_JS,
 
     IT_MISC_HLT = 0,
     IT_MISC_NOP
@@ -204,7 +232,7 @@ static inline bool ends_with(const char *filename, const char *ext)
 #define VALIDATE_REG_INDEX(idx, name) \
     if ((idx) < 0) \
     { \
-        ERROR_FMT("Invalid register: %s", name); \
+        ERROR_FMT("Invalid register \"%s\"", name); \
         fclose(fin); \
         fclose(fout); \
         return ERR_MALFORMED; \
@@ -214,7 +242,7 @@ static inline bool ends_with(const char *filename, const char *ext)
 #define _VALIDATE_REG_INDEX(idx, name) \
     if ((idx) < 0) \
     { \
-        ERROR_FMT("Invalid register: %s", name); \
+        ERROR_FMT("Invalid register \"%s\"", name); \
         exit(ERR_MALFORMED); \
     }
 

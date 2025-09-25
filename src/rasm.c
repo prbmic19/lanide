@@ -32,6 +32,42 @@ static char *trim(char *string)
     return string;
 }
 
+// Function used for bsearch() comparison
+static int compare_instruction(const void *a, const void *b)
+{
+    return strcmp((const char *)a, ((const struct instruction_entry *)b)->mnemonic);
+}
+
+// Finds instruction on the instruction map with bsearch() help
+struct instruction_entry *find_instruction(const char *mnemonic)
+{
+    return (struct instruction_entry *)bsearch(
+        mnemonic,
+        instruction_table,
+        instruction_count,
+        sizeof(struct instruction_entry),
+        compare_instruction
+    );
+}
+
+// Display help message.
+static int display_help(void)
+{
+    puts("Usage: rasm [options] <input.asm>\n");
+    puts("Options:\n");
+    puts("    -h, --help          Display this help message");
+    puts("    -v, --version       Display version information");
+    puts("    -o <output.lx>      Write the assembled machine code to <output.lx>");
+    return 0;
+}
+
+// Display version information.
+static int display_version(void)
+{
+    puts("Robust Assembler version " RASM_VERSION);
+    return 0;
+}
+
 int main(int argc, char *argv[])
 {
     char *input_file = NULL;
@@ -39,6 +75,8 @@ int main(int argc, char *argv[])
     struct flag flags[] = {
         { .name = "--help" },
         { .name = "-h" }, // Alias of --help
+        { .name = "--version" },
+        { .name = "-v" }, // Alias of --version
         { .name = "-o", .value = &output_file, .takes_value = true },
     };
 
@@ -47,13 +85,15 @@ int main(int argc, char *argv[])
     int position = parse_args(argc, argv, flags, sizeof(flags) / sizeof(flags[0]));
 
     // -h, --help
-    if (flags[1].present || flags[2].present)
+    if (flags[0].present || flags[1].present)
     {
-        puts("Usage: rasm [options] <input.asm>\n");
-        puts("Options:\n");
-        puts("    -h, --help          Display this help message");
-        puts("    -o <output.lx>      Write the assembled machine code to output file");
-        return 0;
+        return display_help();
+    }
+
+    // -v, --version
+    if (flags[2].present || flags[3].present)
+    {
+        return display_version();
     }
 
     if (position < 0)
@@ -85,7 +125,7 @@ int main(int argc, char *argv[])
     FILE *fout = fopen(output_file, "wb");
     if (!fin || !fout)
     {
-        perror("fopen");
+        ERROR_FMT("Failed to open file: %s.", strerror(errno));
         return 1;
     }
 
@@ -94,7 +134,7 @@ int main(int argc, char *argv[])
     uint8_t *data_buf = (uint8_t *)calloc(MEM_SIZE / 2, 1);
     if (!text_buf || !data_buf)
     {
-        perror("calloc");
+        ERROR_FMT("Failed to allocate memory: %s.", strerror(errno));
         return 1;
     }
     size_t text_size = 0;
@@ -138,7 +178,7 @@ int main(int argc, char *argv[])
             }
             else
             {
-                ERROR_FMT("Unknown section: %s", destination);
+                ERROR_FMT("Unknown section \"%s\"", destination);
                 return ERR_MALFORMED;
             }
             continue;
@@ -156,16 +196,11 @@ int main(int argc, char *argv[])
             return ERR_ILLINT;
         }
 
-        // Fine for now, but this will get inefficient pretty quickly as the instruction set grows.
-        // TODO: optimize this
-        for (uint16_t i = 0; i < instruction_count; i++)
+        struct instruction_entry *ie = find_instruction(mnemonic);
+        if (ie)
         {
-            if (strcmp(mnemonic, instruction_table[i].mnemonic) == 0)
-            {
-                ei = instruction_table[i].encode(destination, source);
-                found = true;
-                break;
-            }
+            ei = ie->encode(destination, source);
+            found = true;
         }
 
         // Emit a byte
@@ -176,7 +211,7 @@ int main(int argc, char *argv[])
             found = true;
         }
 
-        // Emit a word (2 bytes)
+        // Emit a word
         if (STR_EQUAL_LEN(mnemonic, ".word", 5))
         {
             unsigned long value = strtoul(destination, NULL, 0);
@@ -186,7 +221,7 @@ int main(int argc, char *argv[])
             found = true;
         }
 
-        // Emit a dword (4 bytes)
+        // Emit a dword
         if (STR_EQUAL_LEN(mnemonic, ".dword", 6))
         {
             unsigned long value = strtoul(destination, NULL, 0);
@@ -200,7 +235,7 @@ int main(int argc, char *argv[])
 
         if (!found)
         {
-            ERROR_FMT("Unknown mnemonic: %s", mnemonic);
+            ERROR_FMT("Unknown mnemonic \"%s\"", mnemonic);
             return ERR_ILLINT;
         }
 
@@ -216,7 +251,7 @@ int main(int argc, char *argv[])
                 data_size += ei.length;
                 break;
             default:
-                ERROR_FMT("Unknown section ID: %d", current_section);
+                ERROR_FMT("Unknown section ID %u", current_section);
                 return ERR_MALFORMED;
         }
     }

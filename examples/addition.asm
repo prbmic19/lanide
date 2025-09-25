@@ -1,12 +1,12 @@
 .section .text
-    ; Set DXA (accumulator) to 2500
+    ; Set DXA to 2500
     mov dxa, 2500
 
-    ; Set DXT (temporary) to 7500
-    mov dxt, 7500
+    ; Set DXB to 7500
+    mov dxb, 7500
 
     ; Add the two registers
-    add dxa, dxt
+    add dxa, dxb
 
     ; DXA should now be 10000
 

@@ -8,14 +8,14 @@
 #define ENCODER_ADD(mnemonic) {#mnemonic, enc_##mnemonic}
 
 static const char *reg_names[REG_COUNT] = {
-    "dxa", "dxt", "dxc",                        // Accumulator, temporary, counter
-    "dd0", "dd1", "dd2", "dd3", "dd4", "dd5",   // Data/arguments
-    "dbp", "dsp",                               // Base pointer, stack pointer
-    "ds0", "ds1", "ds2", "ds3", "ds4",          // Callee-saved registers
-    "dip", "dstat"                              // Instruction pointer, Status/flags
+    "dxa", "dxb", "dxc", 
+    "dd0", "dd1", "dd2", "dd3", "dd4", "dd5",
+    "dbp", "dsp",
+    "ds0", "ds1", "ds2", "ds3", "ds4",
+    "dip", "dflags",
 };
 
-// Returns the index of a register. Returns -1 if the argument passed is not a valid register name.
+// Returns the index of a register. Returns -1 if the argument passed is not a valid register.
 static int reg_index(const char *reg)
 {
     for (int i = 0; i < REG_COUNT; i++)
@@ -31,7 +31,7 @@ static int reg_index(const char *reg)
 // Checks if the operand is a register or not, and sets the appropriate variable.
 static bool is_register(const char *operand, int *reg_idx, uint32_t *imm32)
 {
-    // Check if it's a register, if so, return true.
+    // Check if it's a register, if so, set reg_idx and return true.
     int index = reg_index(operand);
     if (index != -1)
     {
@@ -49,23 +49,23 @@ static bool is_register(const char *operand, int *reg_idx, uint32_t *imm32)
     }
 
     // The operand is neither a register or an immediate.
-    ERROR_FMT("Invalid operand: %s", operand);
+    ERROR_FMT("Invalid operand \"%s\"", operand);
     exit(ERR_MALFORMED);
 }
 
 // Encodes IC_REGREG instructions.
 static struct instruction make_regreg(enum instruction_type it, uint8_t rd32, uint8_t rs32)
 {
-    struct instruction ei;
+    struct instruction ei = {
+        .length = 2,
+        .bytes = { [0] = (IC_REGREG << 4) | (it & 0xf) }
+    };
     if (it == IT_REGREG_PUSHFD || it == IT_REGREG_POPFD)
     {
         ei.length = 1;
-        ei.bytes[0] = (IC_REGREG << 4) | (it & 0xf);
     }
     else
     {
-        ei.length = 2;
-        ei.bytes[0] = (IC_REGREG << 4) | (it & 0xf);
         ei.bytes[1] = ((rd32 & 0xf) << 4) | (rs32 & 0xf);
     }
     return ei;
@@ -74,18 +74,25 @@ static struct instruction make_regreg(enum instruction_type it, uint8_t rd32, ui
 // Encodes IC_XREGREG instructions.
 static struct instruction make_xregreg(enum instruction_type it, uint8_t rd32, uint8_t rs32)
 {
-    struct instruction ei = { .length = 2 };
-    ei.bytes[0] = (IC_XREGREG << 4) | (it & 0xf);
-    ei.bytes[1] = ((rd32 & 0xf) << 4) | (rs32 & 0xf);
-    return ei;
+    return (struct instruction){
+        .length = 2,
+        .bytes = {
+            [0] = (IC_XREGREG << 4) | (it & 0xf),
+            [1] = ((rd32 & 0xf) << 4) | (rs32 & 0xf)
+        }
+    };
 }
 
 // Encodes IC_REGIMM instructions.
 static struct instruction make_regimm(enum instruction_type it, uint8_t r32, uint32_t imm, uint8_t immsize)
 {
-    struct instruction ei;
-    ei.bytes[0] = (IC_REGIMM << 4) | (it & 0xf);
-    ei.bytes[1] = ((r32 & 0xf) << 4) | (immsize & 0xf);
+    struct instruction ei = {
+        .length = 6,
+        .bytes = {
+            [0] = (IC_REGIMM << 4) | (it & 0xf),
+            [1] = ((r32 & 0xf) << 4) | (immsize & 0xf)
+        }
+    };
     switch (immsize)
     {
         case 0:
@@ -98,14 +105,13 @@ static struct instruction make_regimm(enum instruction_type it, uint8_t r32, uin
             ei.bytes[3] = (imm >> 8) & 0xff;
             break;
         case 2:
-            ei.length = 6;
             ei.bytes[2] = imm & 0xff;
             ei.bytes[3] = (imm >> 8) & 0xff;
             ei.bytes[4] = (imm >> 16) & 0xff;
             ei.bytes[5] = (imm >> 24) & 0xff;
             break;
         default:
-            ERROR_FMT("Invalid immsize: %u", immsize);
+            ERROR_FMT("Invalid immsize %u", immsize);
             exit(ERR_MALFORMED);
     }
     return ei;
@@ -114,18 +120,21 @@ static struct instruction make_regimm(enum instruction_type it, uint8_t r32, uin
 // Encodes IC_MEM instructions.
 static struct instruction make_mem(enum instruction_type it, uint8_t r32, uint32_t imm20)
 {
-    struct instruction ei = { .length = 4 };
-    ei.bytes[0] = (IC_MEM << 4) | (it & 0xf);
-    ei.bytes[1] = ((r32 & 0xf) << 4) | (imm20 & 0xf);
-    ei.bytes[2] = (imm20 >> 4) & 0xff;
-    ei.bytes[3] = (imm20 >> 12) & 0xff;
-    return ei;
+    return (struct instruction){
+        .length = 4,
+        .bytes = {
+            [0] = (IC_MEM << 4) | (it & 0xf),
+            [1] = ((r32 & 0xf) << 4) | (imm20 & 0xf),
+            [2] = (imm20 >> 4) & 0xff,
+            [3] = (imm20 >> 12) & 0xff
+        }
+    };
 }
 
 // Encodes IC_BRANCH instructions.
 static struct instruction make_branch(enum instruction_type it, uint32_t imm20)
 {
-    struct instruction ei;
+    struct instruction ei = { .length = 4 };
     if (it == IT_BRANCH_RET)
     {
         ei.length = 1;
@@ -133,7 +142,6 @@ static struct instruction make_branch(enum instruction_type it, uint32_t imm20)
     }
     else
     {
-        ei.length = 4;
         ei.bytes[0] = (IC_BRANCH << 4) | (it & 0xf);
         ei.bytes[1] = imm20 & 0xf;
         ei.bytes[2] = (imm20 >> 4) & 0xff;
@@ -145,25 +153,30 @@ static struct instruction make_branch(enum instruction_type it, uint32_t imm20)
 // Encodes IC_XBRANCH instructions.
 static struct instruction make_xbranch(enum instruction_type it, uint32_t imm20)
 {
-    struct instruction ei = { .length = 4 };
-    ei.bytes[0] = (IC_XBRANCH << 4) | (it & 0xf);
-    ei.bytes[1] = imm20 & 0xf;
-    ei.bytes[2] = (imm20 >> 4) & 0xff;
-    ei.bytes[3] = (imm20 >> 12) & 0xff;
-    return ei;
+    return (struct instruction){
+        .length = 4,
+        .bytes = {
+            [0] = (IC_XBRANCH << 4) | (it & 0xf),
+            [1] = imm20 & 0xf,
+            [2] = (imm20 >> 4) & 0xff,
+            [3] = (imm20 >> 12) & 0xff
+        }
+    };
 }
 
 // Encodes IC_MISC instructions.
 static struct instruction make_misc(enum instruction_type it)
 {
-    struct instruction ei = { .length = 1 };
-    ei.bytes[0] = (IC_MISC << 4) | (it & 0xf);
-    return ei;
+    return (struct instruction){
+        .length = 1,
+        .bytes = { [0] = (IC_MISC << 4) | (it & 0xf) }
+    };
 }
 
 /*
     The code below defines the encoder for each mnemonic.
     Some mnemonics are overloaded, encoding different classes based on the operand.
+    The opcodes have been reordered but I am too lazy to reorder this as well.
 */
 
 ENCODER_DEFINE(add, rd32, src)
@@ -505,14 +518,14 @@ ENCODER_DEFINE(ret, __UNUSED_PARAM(a), __UNUSED_PARAM(b))
     return make_branch(IT_BRANCH_RET, 0);
 }
 
-ENCODER_DEFINE(jc, imm20, __UNUSED_PARAM(a))
+ENCODER_DEFINE(jb, imm20, __UNUSED_PARAM(a))
 {
-    return make_xbranch(IT_XBRANCH_JC, (uint32_t)strtoul(imm20, NULL, 0));
+    return make_xbranch(IT_XBRANCH_JB, (uint32_t)strtoul(imm20, NULL, 0));
 }
 
-ENCODER_DEFINE(jz, imm20, __UNUSED_PARAM(a))
+ENCODER_DEFINE(je, imm20, __UNUSED_PARAM(a))
 {
-    return make_xbranch(IT_XBRANCH_JZ, (uint32_t)strtoul(imm20, NULL, 0));
+    return make_xbranch(IT_XBRANCH_JE, (uint32_t)strtoul(imm20, NULL, 0));
 }
 
 ENCODER_DEFINE(jo, imm20, __UNUSED_PARAM(a))
@@ -525,14 +538,14 @@ ENCODER_DEFINE(js, imm20, __UNUSED_PARAM(a))
     return make_xbranch(IT_XBRANCH_JS, (uint32_t)strtoul(imm20, NULL, 0));
 }
 
-ENCODER_DEFINE(jnc, imm20, __UNUSED_PARAM(a))
+ENCODER_DEFINE(jae, imm20, __UNUSED_PARAM(a))
 {
-    return make_xbranch(IT_XBRANCH_JNC, (uint32_t)strtoul(imm20, NULL, 0));
+    return make_xbranch(IT_XBRANCH_JAE, (uint32_t)strtoul(imm20, NULL, 0));
 }
 
-ENCODER_DEFINE(jnz, imm20, __UNUSED_PARAM(a))
+ENCODER_DEFINE(jne, imm20, __UNUSED_PARAM(a))
 {
-    return make_xbranch(IT_XBRANCH_JNZ, (uint32_t)strtoul(imm20, NULL, 0));
+    return make_xbranch(IT_XBRANCH_JNE, (uint32_t)strtoul(imm20, NULL, 0));
 }
 
 ENCODER_DEFINE(jno, imm20, __UNUSED_PARAM(a))
@@ -575,6 +588,16 @@ ENCODER_DEFINE(jbe, imm20, __UNUSED_PARAM(a))
     return make_xbranch(IT_XBRANCH_JBE, (uint32_t)strtoul(imm20, NULL, 0));
 }
 
+ENCODER_DEFINE(jp, imm20, __UNUSED_PARAM(a))
+{
+    return make_xbranch(IT_XBRANCH_JP, (uint32_t)strtoul(imm20, NULL, 0));
+}
+
+ENCODER_DEFINE(jnp, imm20, __UNUSED_PARAM(a))
+{
+    return make_xbranch(IT_XBRANCH_JNP, (uint32_t)strtoul(imm20, NULL, 0));
+}
+
 ENCODER_DEFINE(hlt, __UNUSED_PARAM(a), __UNUSED_PARAM(b))
 {
     return make_misc(IT_MISC_HLT);
@@ -586,55 +609,67 @@ ENCODER_DEFINE(nop, __UNUSED_PARAM(a), __UNUSED_PARAM(b))
 }
 
 // Mnemonic to encoder mapping.
+// Must be arranged alphabetically.
 const struct instruction_entry instruction_table[] = {
     {"add", enc_add},
-    {"sub", enc_sub},
-    {"mul", enc_mul},
-    {"div", enc_div},
     {"and", enc_and},
-    {"or", enc_or},
-    {"xor", enc_xor},
-    {"not", enc_not},
-    {"neg", enc_neg},
-    {"mov", enc_mov},
+    {"call", enc_call},
     {"cmp", enc_cmp},
-    {"test", enc_test},
+    {"div", enc_div},
+    {"hlt", enc_hlt},
+    {"ja", enc_ja},
+    {"jae", enc_jae},
+    {"jb", enc_jb},
+    {"jbe", enc_jbe},
+    {"jc", enc_jb},
+    {"je", enc_je},
+    {"jg", enc_jg},
+    {"jge", enc_jge},
+    {"jl", enc_jl},
+    {"jle", enc_jle},
+    {"jmp", enc_jmp},
+    {"jna", enc_jbe},
+    {"jnae", enc_jb},
+    {"jnb", enc_jae},
+    {"jnbe", enc_ja},
+    {"jnc", enc_jae},
+    {"jne", enc_jne},
+    {"jng", enc_jle},
+    {"jnge", enc_jl},
+    {"jnl", enc_jge},
+    {"jnle", enc_jg},
+    {"jno", enc_jno},
+    {"jnp", enc_jnp},
+    {"jns", enc_jns},
+    {"jnz", enc_jne},
+    {"jo", enc_jo},
+    {"jp", enc_jp},
+    {"jpe", enc_jp},
+    {"jpo", enc_jnp},
+    {"js", enc_js},
+    {"jz", enc_je},
+    {"ldb", enc_ldb},
+    {"ldd", enc_ldd},
+    {"ldip", enc_ldip},
+    {"ldw", enc_ldw},
+    {"mov", enc_mov},
+    {"mul", enc_mul},
+    {"neg", enc_neg},
+    {"nop", enc_nop},
+    {"not", enc_not},
+    {"or", enc_or},
+    {"pop", enc_pop},
+    {"popfd", enc_popfd},
     {"push", enc_push},
-    // Continue doing the thing above. After you've done it, remove the ENCODER_ADD() macro.
-    ENCODER_ADD(pushfd),
-    ENCODER_ADD(pop),
-    ENCODER_ADD(popfd),
-    ENCODER_ADD(xchg),
-    ENCODER_ADD(ldip),
-    ENCODER_ADD(ldb),
-    ENCODER_ADD(ldw),
-    ENCODER_ADD(ldd),
-    ENCODER_ADD(stb),
-    ENCODER_ADD(stw),
-    ENCODER_ADD(std),
-    ENCODER_ADD(jmp),
-    ENCODER_ADD(call),
-    ENCODER_ADD(ret),
-    ENCODER_ADD(jc),
-    ENCODER_ADD(jz),
-    {"je", enc_jz},
-    ENCODER_ADD(jo),
-    ENCODER_ADD(js),
-    ENCODER_ADD(jnc),
-    ENCODER_ADD(jnz),
-    {"jne", enc_jnz},
-    ENCODER_ADD(jno),
-    ENCODER_ADD(jns),
-    ENCODER_ADD(jg),
-    ENCODER_ADD(jge),
-    ENCODER_ADD(jl),
-    ENCODER_ADD(jle),
-    ENCODER_ADD(ja),
-    {"jae", enc_jnc},
-    {"jb", enc_jc},
-    ENCODER_ADD(jbe),
-    ENCODER_ADD(hlt),
-    ENCODER_ADD(nop),
+    {"pushfd", enc_pushfd},
+    {"ret", enc_ret},
+    {"stb", enc_stb},
+    {"std", enc_std},
+    {"stw", enc_stw},
+    {"sub", enc_sub},
+    {"test", enc_test},
+    {"xchg", enc_xchg},
+    {"xor", enc_xor}
 };
 
 // The number of instructions. Includes aliases.

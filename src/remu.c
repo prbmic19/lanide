@@ -2,11 +2,11 @@
 #include "args.h"
 
 static const char *reg_names[REG_COUNT] = {
-    "dxa", "dxt", "dxc",                        // Accumulator, temporary, counter
+    "dxa", "dxb", "dxc",                        // Accumulator, general, counter
     "dd0", "dd1", "dd2", "dd3", "dd4", "dd5",   // Data/arguments
     "dbp", "dsp",                               // Base pointer, stack pointer
     "ds0", "ds1", "ds2", "ds3", "ds4",          // Callee-saved registers
-    "dip", "dstat"                              // Instruction pointer, Status/flags
+    "dip", "dflags"                             // Instruction pointer, flags
 };
 
 // Enumeration of ALU operations used in `update_status()` and `alu_execute()`.
@@ -25,25 +25,50 @@ enum alu_op
     ALU_TEST
 };
 
-// Updates CF, ZF, OF, and SF based on the result and operands given.
-static inline void update_status(uint32_t registers[], enum alu_op operation, int32_t result, int32_t lhs, int32_t rhs)
+bool compute_parity(int32_t number)
+{
+    number ^= number >> 4;
+    number &= 0xf;
+    return !(0x6996 >> number & 1);
+}
+
+// Updates flags based on the result and operands given.
+static inline void update_flags(uint32_t registers[], enum alu_op operation, int32_t result, int32_t lhs, int32_t rhs)
 {
     if (result == 0)
     {
-        dstat |= STAT_ZF;
+        dflags |= FLAG_ZF;
     }
     else
     {
-        dstat &= ~STAT_ZF;
+        dflags &= ~FLAG_ZF;
     }
 
     if (result < 0)
     {
-        dstat |= STAT_SF;
+        dflags |= FLAG_SF;
     }
     else
     {
-        dstat &= ~STAT_SF;
+        dflags &= ~FLAG_SF;
+    }
+
+    if (compute_parity(result))
+    {
+        dflags |= FLAG_PF;
+    }
+    else
+    {
+        dflags &= ~FLAG_PF;
+    }
+
+    if (((lhs ^ rhs ^ result) & 0x10) != 0)
+    {
+        dflags |= FLAG_AF;
+    }
+    else
+    {
+        dflags &= ~FLAG_AF;
     }
 
     switch (operation)
@@ -51,20 +76,20 @@ static inline void update_status(uint32_t registers[], enum alu_op operation, in
         case ALU_ADD:
             if ((uint32_t)result < (uint32_t)lhs)
             {
-                dstat |= STAT_CF;
+                dflags |= FLAG_CF;
             }
             else
             {
-                dstat &= ~STAT_CF;
+                dflags &= ~FLAG_CF;
             }
 
             if (((lhs ^ result) & (rhs ^ result)) >> 31)
             {
-                dstat |= STAT_OF;
+                dflags |= FLAG_OF;
             }
             else
             {
-                dstat &= ~STAT_OF;
+                dflags &= ~FLAG_OF;
             }
             break;
         case ALU_CMP:
@@ -72,34 +97,45 @@ static inline void update_status(uint32_t registers[], enum alu_op operation, in
             // Borrow
             if ((uint32_t)rhs > (uint32_t)lhs)
             {
-                dstat |= STAT_CF;
+                dflags |= FLAG_CF;
             }
             else
             {
-                dstat &= ~STAT_CF;
+                dflags &= ~FLAG_CF;
             }
             
             if (((lhs ^ rhs) & (lhs ^ result)) >> 31)
             {
-                dstat |= STAT_OF;
+                dflags |= FLAG_OF;
             }
             else
             {
-                dstat &= ~STAT_OF;
+                dflags &= ~FLAG_OF;
             }
             break;
         case ALU_MUL:
             if ((int64_t)lhs * (int64_t)rhs > INT32_MAX || (int64_t)lhs * (int64_t)rhs < INT32_MIN)
             {
-                dstat |= STAT_CF | STAT_OF;
+                dflags |= FLAG_CF | FLAG_OF;
             }
             else
             {
-                dstat &= ~(STAT_CF | STAT_OF);
+                dflags &= ~(FLAG_CF | FLAG_OF);
+            }
+            break;
+        case ALU_NEG:
+            if (lhs == 0)
+            {
+                dflags |= FLAG_CF;
+            }
+            else
+            {
+                dflags &= ~FLAG_CF;
             }
             break;
         default:
-            dstat &= ~(STAT_CF | STAT_OF); // Division and logical operations don't generate CF/OF
+            // Division and logical operations don't generate CF/OF
+            dflags &= ~(FLAG_CF | FLAG_OF);
     }
 }
 
@@ -108,46 +144,65 @@ static inline void alu_execute(uint32_t registers[], enum alu_op operation, uint
 {
     int32_t lhs = registers[rd32];
     int32_t result = registers[rd32];
-    int32_t result2; // For discarding
+    // For discarding results, also the one passed to update_flags()
+    int32_t throwaway;
 
     switch (operation)
     {
         case ALU_ADD:
-            result = result2 = lhs + rhs;
+            result = throwaway = lhs + rhs;
             break;
         case ALU_SUB:
-            result = result2 = lhs - rhs;
+            result = throwaway = lhs - rhs;
             break;
         case ALU_MUL:
-            result = result2 = lhs * rhs;
+            result = throwaway = lhs * rhs;
             break;
         case ALU_DIV:
-            result = result2 = lhs / rhs;
+            result = throwaway = lhs / rhs;
             break;
         case ALU_AND:
-            result = result2 = lhs & rhs;
+            result = throwaway = lhs & rhs;
             break;
         case ALU_OR:
-            result = result2 = lhs | rhs;
+            result = throwaway = lhs | rhs;
             break;
         case ALU_XOR:
-            result = result2 = lhs ^ rhs;
+            result = throwaway = lhs ^ rhs;
             break;
         case ALU_NOT:
-            result = result2 = ~lhs;
+            result = throwaway = ~lhs;
             break;
         case ALU_NEG:
-            result = result2 = -lhs;
+            result = throwaway = -lhs;
             break;
         case ALU_CMP:
-            result2 = lhs - rhs;
+            throwaway = lhs - rhs;
             break;
         case ALU_TEST:
-            result2 = lhs & rhs;
+            throwaway = lhs & rhs;
             break;
     }
     registers[rd32] = (uint32_t)result;
-    update_status(registers, operation, result2, lhs, rhs);
+    update_flags(registers, operation, throwaway, lhs, rhs);
+}
+
+// Display help message.
+static int display_help(void)
+{
+    puts("Usage: remu [options...] <program.lx>\n");
+    puts("Options:\n");
+    puts("    -h, --help          Display this help message");
+    puts("    -v, --version       Display version information");
+    puts("    --dump-regs         Display register values at program end");
+    return 0;
+}
+
+// Display version information.
+static int display_version(void)
+{
+    puts("Robust Emulator version " REMU_VERSION);
+    return 0;
 }
 
 int main(int argc, char *argv[])
@@ -157,9 +212,11 @@ int main(int argc, char *argv[])
     struct flag flags[] = {
         { .name = "--help" },
         { .name = "-h" }, // Alias of --help
+        { .name = "--version" },
+        { .name = "-v" }, // Alias of --version
         // Prints reg values when the program stops.
         // This is temporarily. Will remove when we get a nice debugger/dumper.
-        { .name = "--show-state" }
+        { .name = "--dump-regs" }
     };
 
     // Default = input
@@ -168,11 +225,13 @@ int main(int argc, char *argv[])
     // -h, --help
     if (flags[0].present || flags[1].present)
     {
-        puts("Usage: remu [options...] <program.lx>\n");
-        puts("Options:\n");
-        puts("    -h, --help          Display this help message");
-        puts("    --dump-regs         Display register values at program end");
-        return 0;
+        return display_help();
+    }
+
+    // -v, --version
+    if (flags[2].present || flags[3].present)
+    {
+        return display_version();
     }
     
     if (position < 0)
@@ -191,7 +250,7 @@ int main(int argc, char *argv[])
     FILE *fin = fopen(input_file, "rb");
     if (!fin)
     {
-        perror("fopen");
+        ERROR_FMT("Failed to open input file: %s.", strerror(errno));
         return 1;
     }
 
@@ -217,7 +276,7 @@ int main(int argc, char *argv[])
     uint8_t *memory = (uint8_t *)calloc(MEM_SIZE, 1);
     if (!memory)
     {
-        perror("calloc");
+        ERROR_FMT("Failed to allocate memory: %s.", strerror(errno));
         fclose(fin);
         return 1;
     }
@@ -241,7 +300,7 @@ int main(int argc, char *argv[])
         }
         else
         {
-            perror("fread");
+            ERROR_FMT("Failed to read input file: %s.", strerror(errno));
             fclose(fin);
             free(memory);
             return 1;
@@ -259,7 +318,10 @@ int main(int argc, char *argv[])
     fclose(fin);
 
     // Initialize registers. Set `dsp` to STACK_BASE and `dip` to TEXT_BASE.
-    uint32_t registers[18] = { [10] = STACK_BASE, [16] = TEXT_BASE };
+    uint32_t registers[18] = {
+        [10] = STACK_BASE,
+        [16] = TEXT_BASE
+    };
 
     while (1)
     {
@@ -270,7 +332,7 @@ int main(int argc, char *argv[])
 
         if (dip + length > MEM_SIZE)
         {
-            ERROR_FMT("Instruction pointer out of bounds: %#x", dip);
+            ERROR_FMT("Instruction pointer %#x out of bounds.", dip);
             exit_code = ERR_BOUND;
             break;
         }
@@ -282,6 +344,8 @@ int main(int argc, char *argv[])
         enum instruction_type op = opcode & 0xf;
 
         /* Decode and execute */
+        
+        // Too lazy to reorder these cases now that I've reordered the opcodes
         switch (class)
         {
             case IC_REGREG:
@@ -302,7 +366,7 @@ int main(int argc, char *argv[])
                     case IT_REGREG_DIV:
                         if (registers[rs32] == 0)
                         {
-                            ERROR_FMT("Illegal DIV instruction: divide-by-zero at address %#x", dip);
+                            ERROR_FMT("Illegal DIV instruction: Division by zero at address %#x", dip);
                             exit_code = ERR_ILLINT;
                             goto halted;
                         }
@@ -341,10 +405,10 @@ int main(int argc, char *argv[])
                         break;
                     case IT_REGREG_PUSHFD:
                         dsp -= 4;
-                        memory[dsp]     = dstat & 0xff;
-                        memory[dsp + 1] = (dstat >> 8) & 0xff;
-                        memory[dsp + 2] = (dstat >> 16) & 0xff;
-                        memory[dsp + 3] = (dstat >> 24) & 0xff;
+                        memory[dsp]     = dflags & 0xff;
+                        memory[dsp + 1] = (dflags >> 8) & 0xff;
+                        memory[dsp + 2] = (dflags >> 16) & 0xff;
+                        memory[dsp + 3] = (dflags >> 24) & 0xff;
                         break;
                     case IT_REGREG_POP:
                         registers[rd32] = memory[dsp]
@@ -354,7 +418,7 @@ int main(int argc, char *argv[])
                         dsp += 4;
                         break;
                     case IT_REGREG_POPFD:
-                        dstat = memory[dsp]
+                        dflags = memory[dsp]
                             | (memory[dsp + 1] << 8)
                             | (memory[dsp + 2] << 16)
                             | (memory[dsp + 3] << 24);
@@ -419,7 +483,7 @@ int main(int argc, char *argv[])
                 // Values 4..15 are reserved
                 if (immsize > 3)
                 {
-                    ERROR_FMT("Illegal IC_REGIMM instruction: invalid immsize %u at address %#x", immsize, dip);
+                    ERROR_FMT("Illegal IC_REGIMM instruction: Invalid immsize %u at address %#x", immsize, dip);
                     exit_code = ERR_ILLINT;
                     goto halted;
                 }
@@ -438,7 +502,7 @@ int main(int argc, char *argv[])
                     case IT_REGIMM_DIV:
                         if (imm == 0)
                         {
-                            ERROR_FMT("Illegal DIV instruction: divide-by-zero at address %#x", dip);
+                            ERROR_FMT("Illegal DIV instruction: Division by zero at address %#x", dip);
                             exit_code = ERR_ILLINT;
                             goto halted;
                         }
@@ -550,47 +614,53 @@ int main(int argc, char *argv[])
                 uint32_t imm20 = (buffer[1] & 0xf) | (buffer[2] << 4) | (buffer[3] << 12);
                 switch (op)
                 {
-                    case IT_XBRANCH_JC:
-                        JUMP(imm20, dstat & STAT_CF);
+                    case IT_XBRANCH_JB:
+                        JUMP(imm20, dflags & FLAG_CF);
                         break;
-                    case IT_XBRANCH_JZ:
-                        JUMP(imm20, dstat & STAT_ZF);
+                    case IT_XBRANCH_JE:
+                        JUMP(imm20, dflags & FLAG_ZF);
                         break;
                     case IT_XBRANCH_JO:
-                        JUMP(imm20, dstat & STAT_OF);
+                        JUMP(imm20, dflags & FLAG_OF);
                         break;
                     case IT_XBRANCH_JS:
-                        JUMP(imm20, dstat & STAT_SF);
+                        JUMP(imm20, dflags & FLAG_SF);
                         break;
-                    case IT_XBRANCH_JNC:
-                        JUMP(imm20, !(dstat & STAT_CF));
+                    case IT_XBRANCH_JAE:
+                        JUMP(imm20, !(dflags & FLAG_CF));
                         break;
-                    case IT_XBRANCH_JNZ:
-                        JUMP(imm20, !(dstat & STAT_ZF));
+                    case IT_XBRANCH_JNE:
+                        JUMP(imm20, !(dflags & FLAG_ZF));
                         break;
                     case IT_XBRANCH_JNO:
-                        JUMP(imm20, !(dstat & STAT_OF));
+                        JUMP(imm20, !(dflags & FLAG_OF));
                         break;
                     case IT_XBRANCH_JNS:
-                        JUMP(imm20, !(dstat & STAT_SF));
+                        JUMP(imm20, !(dflags & FLAG_SF));
                         break;
                     case IT_XBRANCH_JG:
-                        JUMP(imm20, !(dstat & STAT_ZF) && ((dstat & STAT_SF) == (dstat & STAT_OF)));
+                        JUMP(imm20, !(dflags & FLAG_ZF) && ((dflags & FLAG_SF) == (dflags & FLAG_OF)));
                         break;
                     case IT_XBRANCH_JGE:
-                        JUMP(imm20, (dstat & STAT_SF) == (dstat & STAT_OF));
+                        JUMP(imm20, (dflags & FLAG_SF) == (dflags & FLAG_OF));
                         break;
                     case IT_XBRANCH_JL:
-                        JUMP(imm20, (dstat & STAT_SF) != (dstat & STAT_OF));
+                        JUMP(imm20, (dflags & FLAG_SF) != (dflags & FLAG_OF));
                         break;
                     case IT_XBRANCH_JLE:
-                        JUMP(imm20, (dstat & STAT_ZF) && ((dstat & STAT_SF) != (dstat & STAT_OF)));
+                        JUMP(imm20, (dflags & FLAG_ZF) && ((dflags & FLAG_SF) != (dflags & FLAG_OF)));
                         break;
                     case IT_XBRANCH_JA:
-                        JUMP(imm20, !(dstat & STAT_CF) && !(dstat & STAT_ZF));
+                        JUMP(imm20, !(dflags & FLAG_CF) && !(dflags & FLAG_ZF));
                         break;
                     case IT_XBRANCH_JBE:
-                        JUMP(imm20, (dstat & STAT_CF) && (dstat & STAT_ZF));
+                        JUMP(imm20, (dflags & FLAG_CF) && (dflags & FLAG_ZF));
+                        break;
+                    case IT_XBRANCH_JP:
+                        JUMP(imm20, dflags & FLAG_PF);
+                        break;
+                    case IT_XBRANCH_JNP:
+                        JUMP(imm20, !(dflags & FLAG_PF));
                         break;
                     default:
                         ERROR_FMT("Illegal IC_BRANCH instruction %#x at address %#x", op, dip);
@@ -619,12 +689,19 @@ int main(int argc, char *argv[])
         }
 
         dip += length;
+        // Always 1
+        dflags |= FLAG_RB1;
+        // Always 0
+        dflags &= ~(FLAG_RB3 | FLAG_RB5 | FLAG_RB15);
+        // Clear bits 22..31
+        dflags &= ~0x7fc00000;
     }
 
 halted:
 
+    // --dump-regs
     // Will remove this in the future.
-    if (flags[2].present)
+    if (flags[4].present)
     {
         for (int i = 0; i < REG_COUNT; i++)
         {

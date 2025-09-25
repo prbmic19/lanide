@@ -26,8 +26,8 @@ RX currently ships with three main tools:
 
 ### Prerequisites
 You'll need the following tools installed:
-- [https://gcc.gnu.org/](GCC)
-- [https://www.gnu.org/software/make/](Make)
+- [GCC](https://gcc.gnu.org/)
+- [Make](https://www.gnu.org/software/make/)
 
 Clone the repo and run `make` (cross-platform: works on Linux/macOS and Windows):
 ```sh
@@ -37,7 +37,7 @@ make
 ```
 
 ### Clean
-To wipe build artifacts:
+To clean build artifacts:
 ```sh
 make clean
 ```
