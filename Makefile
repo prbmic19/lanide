@@ -1,13 +1,24 @@
 CC = gcc
-CCFLAGS = -Wall -Wextra -Wpedantic
+CCFLAGS = -Wall -Wextra -Wpedantic -MMD -MP
 BUILD_DIR = build
-ASMSRC = src/rasm.c src/encoders.c src/args.c
-DISASMSRC = src/rdisasm.c src/args.c
-EMUSRC = src/remu.c src/args.c
+SOURCE_DIR = src
+
+# Source files
+ASMSRC = rasm.c eitable.c argparser.c diag.c
+DISASMSRC = rdisasm.c argparser.c diag.c
+EMUSRC = remu.c argparser.c diag.c
+
+# Object files
+ASMOBJ = $(addprefix $(BUILD_DIR)/,$(ASMSRC:.c=.o))
+DISASMOBJ = $(addprefix $(BUILD_DIR)/,$(DISASMSRC:.c=.o))
+EMUOBJ = $(addprefix $(BUILD_DIR)/,$(EMUSRC:.c=.o))
+
+# Executables
 ASMEXE = $(BUILD_DIR)/rasm$(DEBUG_SUFFIX)
-DISASMEXE = build/rdisasm$(DEBUG_SUFFIX)
+DISASMEXE = $(BUILD_DIR)/rdisasm$(DEBUG_SUFFIX)
 EMUEXE = $(BUILD_DIR)/remu$(DEBUG_SUFFIX)
 
+# Debug mode toggle
 DEBUG ?= 0
 ifeq ($(DEBUG), 1)
 	CCFLAGS += -ggdb -g3 -fno-inline -O0
@@ -25,21 +36,29 @@ else
 	CLEAN = rm -rf $(BUILD_DIR)/*
 endif
 
-all: $(BUILD_DIR) assembler disassembler emulator
+all: $(BUILD_DIR) $(ASMEXE) $(DISASMEXE) $(EMUEXE)
 
 $(BUILD_DIR):
 	$(MKDIR)
 
-assembler:
-	$(CC) $(CCFLAGS) $(ASMSRC) -o $(ASMEXE)
+# .c -> .o
+$(BUILD_DIR)/%.o: $(SOURCE_DIR)/%.c
+	$(CC) $(CCFLAGS) -c $< -o $@
 
-disassembler:
-	$(CC) $(CCFLAGS) $(DISASMSRC) -o $(DISASMEXE)
+# Executables depend on object files
+$(ASMEXE): $(ASMOBJ)
+	$(CC) $(CCFLAGS) $^ -o $@
 
-emulator:
-	$(CC) $(CCFLAGS) $(EMUSRC) -o $(EMUEXE)
+$(DISASMEXE): $(DISASMOBJ)
+	$(CC) $(CCFLAGS) $^ -o $@
+
+$(EMUEXE): $(EMUOBJ)
+	$(CC) $(CCFLAGS) $^ -o $@
 
 clean:
 	$(CLEAN)
 
-.PHONY: all clean assembler disassembler emulator
+# Pull in all generated dependency files (if they exist)
+-include $(ASMOBJ:.o=.d) $(DISASMOBJ:.o=.d) $(EMUOBJ:.o=.d)
+
+.PHONY: all clean

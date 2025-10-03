@@ -1,14 +1,14 @@
 .section .text
-    ; Set DXA to 2500
-    mov dxa, 2500
+    ; Set RXA to 2500
+    mov rxa, 2500
 
-    ; Set DXB to 7500
-    mov dxb, 7500
+    ; Set RXB to 7500
+    mov rxb, 7500
 
     ; Add the two registers
-    add dxa, dxb
+    add rxa, rxb
 
-    ; DXA should now be 10000
+    ; RXA should now be 10000
 
     ; Halt the execution
     hlt

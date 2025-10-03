@@ -3,18 +3,18 @@
 
 .section .text
     ; NOP
-    mov dxa, 0xF1
-    stb 0x1ABCD, dxa
+    mov al, 0xF1
+    stb 0x1ABCD, al
 
     ; HLT
-    mov dxa, 0xF0
-    stb 0x1ABCE, dxa
+    mov al, 0xF0
+    stb 0x1ABCE, al
 
-    mov dxa, 0xCAFEBABE
+    mov rxa, 0xCAFEBABE
 
     ; Jump to the injected code
     jmp 0x1ABCD
 
     ; The code below should never be reached
-    mov dxa, 0xDEADBEEF
+    mov rxa, 0xDEADBEEF
     hlt

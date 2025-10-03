@@ -1,11 +1,17 @@
-/** Implements the assembler, outputting Lanide Extended machine code. */
+/** Implements the assembler, outputting Lanide Extended 64 machine code. */
 
+#include "argparser.h"
 #include "definitions.h"
-#include "encoders.h"
-#include "args.h"
+#include "diag.h"
+#include "eitable.h"
 #include <ctype.h>
+#include <errno.h>
 
-// Internal function for trimming a line of source code.
+static FILE *fin = NULL;
+static FILE *fout = NULL;
+static uint8_t *text_buf = NULL;
+static uint8_t *data_buf = NULL;
+
 static char *trim(char *string)
 {
     char *end = NULL;
@@ -32,16 +38,77 @@ static char *trim(char *string)
     return string;
 }
 
-// Function used for bsearch() comparison
+// Checks if the given string is a numeric zero.
+static bool is_zero(const char *string)
+{
+    if (!string || !*string)
+    {
+        return false;
+    }
+
+    char *endptr = NULL;
+    u64_it value = strtoull(string, &endptr, 0);
+
+    if (*endptr != '\0')
+    {
+        return false;
+    }
+
+    return value == 0;
+}
+
+// Returns the operand size based on the operand passed.
+uint16_t get_operand_size(const char *operand)
+{
+    if (!operand || !*operand)
+    {
+        return 0;
+    }
+
+    uint32_t length = strlen(operand);
+    char first_char = *operand;
+    char last_char = operand[length - 1];
+
+    // If it's an immediate, assume it's 64-bit.
+    char *endptr = NULL;
+    strtoull(operand, &endptr, 0);
+    if (*endptr == '\0')
+    {
+        return 64;
+    }
+    
+    // Infer operand size from register used.
+
+    if (first_char == 'r' && (length == 2 || length == 3))
+    {
+        return 64;
+    }
+    if ((first_char == 'd' || last_char == 'd') && (length == 3 || length == 4))
+    {
+        return 32;
+    }
+    if (last_char == 'w' || (length == 2 && (first_char == 'x' || first_char == 'b' || first_char == 's')))
+    {
+        return 16;
+    }
+    if ((last_char == 'b' || last_char == 'l') && (length >= 2 && length <= 4))
+    {
+        return 8;
+    }
+
+    return 0;
+}
+
+// Function used for bsearch() comparison.
 static int compare_instruction(const void *a, const void *b)
 {
     return strcmp((const char *)a, ((const struct instruction_entry *)b)->mnemonic);
 }
 
-// Finds instruction on the instruction map with bsearch() help
+// Finds instruction on the instruction map with bsearch() help.
 struct instruction_entry *find_instruction(const char *mnemonic)
 {
-    return (struct instruction_entry *)bsearch(
+    return bsearch(
         mnemonic,
         instruction_table,
         instruction_count,
@@ -53,99 +120,114 @@ struct instruction_entry *find_instruction(const char *mnemonic)
 // Display help message.
 static int display_help(void)
 {
-    puts("Usage: rasm [options] <input.asm>\n");
-    puts("Options:\n");
-    puts("    -h, --help          Display this help message");
+    puts("Usage: rasm [options] <file>");
+    puts("Options:");
+    puts("    --help              Display this help message");
     puts("    -v, --version       Display version information");
-    puts("    -o <output.lx>      Write the assembled machine code to <output.lx>");
+    puts("    -o <output>         Write the assembled machine code to <output>");
     return 0;
 }
 
 // Display version information.
 static int display_version(void)
 {
-    puts("Robust Assembler version " RASM_VERSION);
+    puts("rasm version " RASM_VERSION);
     return 0;
+}
+
+// Cleanup before exit.
+static void cleanup(void)
+{
+    if (fin)
+    {
+        fclose(fin);
+    }
+    if (fout)
+    {
+        fclose(fout);
+    }
+    free(text_buf);
+    free(data_buf);
 }
 
 int main(int argc, char *argv[])
 {
     char *input_file = NULL;
     char *output_file = NULL;
-    struct flag flags[] = {
+    struct option options[] = {
         { .name = "--help" },
-        { .name = "-h" }, // Alias of --help
         { .name = "--version" },
         { .name = "-v" }, // Alias of --version
         { .name = "-o", .value = &output_file, .takes_value = true },
     };
 
-    // Parse arguments passed.
-    // An argument not tied to a flag is expected to be the input file.
-    int position = parse_args(argc, argv, flags, sizeof(flags) / sizeof(flags[0]));
+    set_progname(argv[0]);
+    optional_enable_vt_mode();
+    atexit(cleanup);
 
-    // -h, --help
-    if (flags[0].present || flags[1].present)
+    // Parse arguments passed.
+    // An argument not tied to an option is expected to be the input file.
+    int position = parse_args(argc, argv, options, sizeof(options) / sizeof(options[0]));
+
+    // --help
+    if (options[0].present)
     {
         return display_help();
     }
 
     // -v, --version
-    if (flags[2].present || flags[3].present)
+    if (options[1].present || options[2].present)
     {
         return display_version();
     }
 
+    if (apstat & APEN_NODEFAULT)
+    {
+        emit_fatal("missing input file");
+    }
+
     if (position < 0)
     {
-        ERROR("Missing input file.");
         return 1;
     }
     input_file = argv[position];
 
-    if (!output_file)
-    {
-        ERROR("Missing output file.");
-        return 1;
-    }
-
     // Validate their extensions.
     if (!ends_with(input_file, ".asm"))
     {
-        ERROR("Input file must have have .asm extension.");
-        return 1;
+        emit_error("input file must have '.asm' extension");
     }
     if (!ends_with(output_file, ".lx"))
     {
-        ERROR("Output file must have .lx extension.");
-        return 1;
+        emit_error("output file must have '.lx' extension");
     }
 
-    FILE *fin = fopen(input_file, "r");
-    FILE *fout = fopen(output_file, "wb");
+    fin = fopen(input_file, "r");
+    fout = fopen(output_file, "wb");
     if (!fin || !fout)
     {
-        ERROR_FMT("Failed to open file: %s.", strerror(errno));
-        return 1;
+        emit_fatal("failed to open file: %s", strerror(errno));
     }
 
     // Allocate space for the .text and .data sections
-    uint8_t *text_buf = (uint8_t *)calloc(MEM_SIZE / 2, 1);
-    uint8_t *data_buf = (uint8_t *)calloc(MEM_SIZE / 2, 1);
+    text_buf = calloc(MEM_SIZE / 2, 1);
+    data_buf = calloc(MEM_SIZE / 2, 1);
     if (!text_buf || !data_buf)
     {
-        ERROR_FMT("Failed to allocate memory: %s.", strerror(errno));
-        return 1;
+        emit_fatal("failed to allocate memory: %s", strerror(errno));
     }
     size_t text_size = 0;
     size_t data_size = 0;
 
-    // ID of the current section.
-    uint16_t current_section = 0xffff;
+    // "ID" of the current section.
+    uint16_t current_section = SECT_INVALID;
 
     char line[256] = {0};
+    size_t line_number = 0;
     while (fgets(line, sizeof(line), fin))
     {
+        line_number++;
+
         // Skip comments and newlines.
         if (*trim(line) == ';' || *trim(line) == '\n')
         {
@@ -156,7 +238,6 @@ int main(int argc, char *argv[])
         char destination[32] = {0};
         char source[32] = {0};
         struct instruction ei = {0};
-        bool found = false;
 
         // Parse the line
         int n = sscanf(line, "%31s %31[^,], %31s", mnemonic, destination, source);
@@ -165,6 +246,48 @@ int main(int argc, char *argv[])
             continue;
         }
 
+        // Emit a byte
+        if (STR_EQUAL_LEN(mnemonic, ".byte", 5))
+        {
+            ei.length = 1;
+            ei.bytes[0] = strtoul(destination, NULL, 0) & 0xff;
+            goto write;
+        }
+
+        // Emit a word
+        if (STR_EQUAL_LEN(mnemonic, ".word", 5))
+        {
+            unsigned long value = strtoul(destination, NULL, 0);
+            ei.length = 2;
+            ei.bytes[0] = value & 0xff;
+            ei.bytes[1] = (value >> 8) & 0xff;
+            goto write;
+        }
+
+        // Emit a dword
+        if (STR_EQUAL_LEN(mnemonic, ".dword", 6))
+        {
+            unsigned long value = strtoul(destination, NULL, 0);
+            ei.length = 4;
+            ei.bytes[0] = value & 0xff;
+            ei.bytes[1] = (value >> 8) & 0xff;
+            ei.bytes[2] = (value >> 16) & 0xff;
+            ei.bytes[3] = (value >> 24) & 0xff;
+            goto write;
+        }
+
+        // Emit a qword
+        if (STR_EQUAL_LEN(mnemonic, ".qword", 6))
+        {
+            u64_it value = strtoull(destination, NULL, 0);
+            ei.length = 8;
+            for (int i = 0; i < 8; i++)
+            {
+                ei.bytes[i] = (value >> i * 8) & 0xff;
+            }
+            goto write;
+        }
+        
         // Change the section
         if (STR_EQUAL_LEN(mnemonic, ".section", 8))
         {
@@ -178,82 +301,80 @@ int main(int argc, char *argv[])
             }
             else
             {
-                ERROR_FMT("Unknown section \"%s\"", destination);
-                return ERR_MALFORMED;
+                emit_error("unrecognized section: '%s'", destination);
             }
             continue;
         }
+        
+        ei.operand_size = get_operand_size(destination) ? get_operand_size(destination) : get_operand_size(source);
+        if (ei.operand_size == 0 && n > 1)
+        {
+            emit_warning("at %s:%zu: unable to infer operand size, assuming 64-bit", input_file, line_number);
+            ei.operand_size = 64;
+        }
+
+        if (STR_EQUAL_LEN(mnemonic, "div", 3) && is_zero(source))
+        {
+            emit_warning("at %s:%zu: division by zero", input_file, line_number);
+        }
 
         // Uh oh! Illegal instruction! These cannot be accessed as an operand.
-        if (
-            STR_EQUAL_LEN(destination, "dip", 3)
-            || STR_EQUAL_LEN(destination, "dstat", 4)
-            || STR_EQUAL_LEN(source, "dip", 3)
-            || STR_EQUAL_LEN(source, "dstat", 4)
-        )
+        // We use the `ends_with()` function here even though it's currently intended for use with file names :P
+
+        char *bad_symbol = NULL;
+        if (ends_with(destination, "ip") || ends_with(destination, "flags"))
         {
-            ERROR("Illegal instruction: accessing DIP/DSTAT");
-            return ERR_ILLINT;
+            bad_symbol = destination;
+        }
+        else if (ends_with(source, "ip") || ends_with(source, "flags"))
+        {
+            bad_symbol = source;
+        }
+
+        if (bad_symbol)
+        {
+            emit_error("at %s:%zu: forbidden access to: %s", input_file, line_number, bad_symbol);
         }
 
         struct instruction_entry *ie = find_instruction(mnemonic);
         if (ie)
         {
-            ei = ie->encode(destination, source);
-            found = true;
+            ie->encode(&ei, destination, source);
+        }
+        else
+        {
+            emit_error("at %s:%zu: unknown mnemonic: '%s'", input_file, line_number, mnemonic);
         }
 
-        // Emit a byte
-        if (STR_EQUAL_LEN(mnemonic, ".byte", 5))
-        {
-            ei.length = 1;
-            ei.bytes[0] = strtoul(destination, NULL, 0) & 0xff;
-            found = true;
-        }
-
-        // Emit a word
-        if (STR_EQUAL_LEN(mnemonic, ".word", 5))
-        {
-            unsigned long value = strtoul(destination, NULL, 0);
-            ei.length = 2;
-            ei.bytes[0] = value & 0xff;
-            ei.bytes[1] = (value >> 8) & 0xff;
-            found = true;
-        }
-
-        // Emit a dword
-        if (STR_EQUAL_LEN(mnemonic, ".dword", 6))
-        {
-            unsigned long value = strtoul(destination, NULL, 0);
-            ei.length = 4;
-            ei.bytes[0] = value & 0xff;
-            ei.bytes[1] = (value >> 8) & 0xff;
-            ei.bytes[2] = (value >> 16) & 0xff;
-            ei.bytes[3] = (value >> 24) & 0xff;
-            found = true;
-        }
-
-        if (!found)
-        {
-            ERROR_FMT("Unknown mnemonic \"%s\"", mnemonic);
-            return ERR_ILLINT;
-        }
+write:
 
         // Write the buffers to their respective sections
         switch (current_section)
         {
             case SECT_TEXT:
+                if (text_size + ei.length > MEM_SIZE / 2)
+                {
+                    emit_fatal("text section overflow");
+                }
                 memcpy(text_buf + text_size, ei.bytes, ei.length);
                 text_size += ei.length;
                 break;
             case SECT_DATA:
+                if (data_size + ei.length > MEM_SIZE / 2)
+                {
+                    emit_fatal("data section overflow");
+                }
                 memcpy(data_buf + data_size, ei.bytes, ei.length);
                 data_size += ei.length;
                 break;
             default:
-                ERROR_FMT("Unknown section ID %u", current_section);
-                return ERR_MALFORMED;
+                emit_error("unknown section: %u", current_section);
         }
+    }
+
+    if (errors_emitted != 0)
+    {
+        return 1;
     }
 
     // Write the magic bytes
@@ -269,9 +390,5 @@ int main(int argc, char *argv[])
     // Write the contents of .data
     fwrite(data_buf, 1, data_size, fout);
 
-    fclose(fin);
-    fclose(fout);
-    free(text_buf);
-    free(data_buf);
     return 0;
 }

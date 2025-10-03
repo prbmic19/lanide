@@ -4,7 +4,7 @@
 #include <stdint.h>
 
 // Encoder function type.
-typedef struct instruction (*encoder_ft)(const char *destination, const char *source);
+typedef void (*encoder_ft)(struct instruction *ei, const char *restrict destination, const char *restrict source);
 
 // Maps mnemonic to an encoder.
 // Multiple mnemonics can have the same encoder, thus having the same opcode.

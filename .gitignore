@@ -1,3 +1,13 @@
-build/
+# Rules should be kept sorted.
+
+# Ignore these!
+*~
+.*
 /*.asm
 /*.lx
+build/
+
+# Don't ignore these!
+!.clang-format
+!.gitattributes
+!.gitignore

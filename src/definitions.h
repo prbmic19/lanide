@@ -7,17 +7,22 @@
 #include <string.h>
 #include <stdint.h>
 #include <stdbool.h>
-#include <errno.h>
 
 #define MAGIC_BYTES_SIZE 8
 // Magic bytes put and expected at the start of every .lx file
-static const uint8_t magic_bytes[MAGIC_BYTES_SIZE] = {'\x7f', '\x00', '\x00', 'R', 'O', 'B', 'I', 'N'};
+static const char magic_bytes[MAGIC_BYTES_SIZE] = {'\x7f', '\x00', '\x00', 'R', 'O', 'B', 'I', 'N'};
 
 /* Versions of each file */
 
-#define RASM_VERSION    "0.2.3"
-#define RDISASM_VERSION "0.2.3"
-#define REMU_VERSION    "0.2.9"
+#define RASM_VERSION    "0.3.4"
+#define RDISASM_VERSION "0.3.2"
+#define REMU_VERSION    "0.3.2"
+
+// Define these using `long long`. It's guaranteed already that `long long` is at least 64 bits wide.
+// It's a bit dangerous to mix `uint64_t` and the `ULL` prefix for integer literals, the compiler might get pedantic about it.
+
+typedef long long i64_it;
+typedef unsigned long long u64_it;
 
 // Amount of memory each process gets
 #define MEM_SIZE    0x100000
@@ -28,15 +33,10 @@ static const uint8_t magic_bytes[MAGIC_BYTES_SIZE] = {'\x7f', '\x00', '\x00', 'R
 // Start of stack, grows downward
 #define STACK_BASE  MEM_SIZE
 
-// Illegal instruction error
-#define ERR_ILLINT      0x7f
-// Generic malformity error
-#define ERR_MALFORMED   0x80
-// Out-of-bounds access error
-#define ERR_BOUND       0x81
-
-/* Implementation of x86 flags */
-// Names such as RB<n> are reserved bits, and n denotes what bit they are. 
+/**
+ * I implemented x86 flags here. I was too lazy to design up my own, and this felt enough.
+ * The name RB<n> are reserved bits, and <n> denotes what bit they are.
+ */
 
 #define FLAG_CF     0x1
 #define FLAG_RB1    0x2
@@ -61,30 +61,24 @@ static const uint8_t magic_bytes[MAGIC_BYTES_SIZE] = {'\x7f', '\x00', '\x00', 'R
 #define FLAG_VIP    0x100000
 #define FLAG_ID     0x200000
 
-/* Macros to print errors and warns */
-
-#define ERROR(message)          fputs("\x1b[31merror:\x1b[0m " message "\n", stderr)
-#define WARN(message)           fputs("\x1b[35mwarning:\x1b[0m " message "\n", stderr)
-#define ERROR_FMT(format, ...)  fprintf(stderr, "\x1b[31merror:\x1b[0m " format "\n", __VA_ARGS__)
-#define WARN_FMT(format, ...)   fprintf(stderr, "\x1b[35mwarning:\x1b[0m " format "\n", __VA_ARGS__)
-
 // Macro to compare a string to another string of known length.
 #define STR_EQUAL_LEN(string_dest, string_src, length) \
     (strncmp(string_dest, string_src, length) == 0 && string_src[length] == '\0')
 
 /* IDs of sections in memory */
 
-#define SECT_TEXT 0
-#define SECT_DATA 1
+#define SECT_TEXT       0
+#define SECT_DATA       1
+#define SECT_INVALID    0xffff
 
 /* Useful register macros (although depends on the fact that a "registers" array exists in the current context) */
 
-#define dsp     registers[10]
-#define dip     registers[16]
-#define dflags  registers[17]
+#define rsp     registers[7]
+#define rip     registers[16]
+#define rflags  registers[17]
 
 // Current maximum length of instructions.
-#define MAX_INSTRUCTION_LENGTH 6
+#define MAX_INSTRUCTION_LENGTH 13
 
 // Number of registers. Includes general-purpose ones, the instruction pointer, and flags/status.
 #define REG_COUNT 18
@@ -93,7 +87,8 @@ static const uint8_t magic_bytes[MAGIC_BYTES_SIZE] = {'\x7f', '\x00', '\x00', 'R
 struct instruction
 {
     uint8_t bytes[MAX_INSTRUCTION_LENGTH];
-    int length;
+    uint8_t length;
+    uint16_t operand_size;  // 8, 16, 32, 64, 128, 256, 512...
 };
 
 // Enumeration of instruction classes. Maximum of 16.
@@ -107,6 +102,7 @@ enum instruction_class
     IC_MEM,
     IC_BRANCH,
     IC_XBRANCH,
+    IC_PREFIX,
     IC_MISC = 0xf
 };
 
@@ -125,9 +121,9 @@ enum instruction_type
     IT_REGREG_NOT,
     IT_REGREG_OR,
     IT_REGREG_POP,
-    IT_REGREG_POPFD,
+    IT_REGREG_POPFQ,
     IT_REGREG_PUSH,
-    IT_REGREG_PUSHFD,
+    IT_REGREG_PUSHFQ,
     IT_REGREG_SUB,
     IT_REGREG_TEST,
     IT_REGREG_XOR,
@@ -135,6 +131,9 @@ enum instruction_type
     IT_XREGREG_CALL = 0,
     IT_XREGREG_JMP,
     IT_XREGREG_LDIP,
+    IT_XREGREG_MULH,
+    IT_XREGREG_SDIV,
+    IT_XREGREG_SMULH,
     IT_XREGREG_XCHG,
 
     IT_REGIMM_ADD = 0,
@@ -143,16 +142,21 @@ enum instruction_type
     IT_REGIMM_DIV,
     IT_REGIMM_MOV,
     IT_REGIMM_MUL,
+    IT_REGIMM_MULH,
     IT_REGIMM_OR,
+    IT_REGIMM_SDIV,
+    IT_REGIMM_SMULH,
     IT_REGIMM_SUB,
     IT_REGIMM_TEST,
     IT_REGIMM_XOR,
 
     IT_MEM_LDB = 0,
     IT_MEM_LDD,
+    IT_MEM_LDQ,
     IT_MEM_LDW,
     IT_MEM_STB,
     IT_MEM_STD,
+    IT_MEM_STQ,
     IT_MEM_STW,
 
     IT_BRANCH_CALL = 0,
@@ -176,48 +180,79 @@ enum instruction_type
     IT_XBRANCH_JP,
     IT_XBRANCH_JS,
 
+    IT_PREFIX_OS32 = 0,
+    IT_PREFIX_OS16,
+    IT_PREFIX_OS8,
+    IT_PREFIX_VECX, /* Reserved */
+
     IT_MISC_HLT = 0,
     IT_MISC_NOP
 };
 
-// Returns the length of the instruction based on the opcode.
+// Returns the length of the instruction based on the opcode and operand size.
 // Some exceptions exist and override the length expected by the class, such as RET.
-static inline int get_length(uint8_t opcode, uint8_t byte2)
+static inline int get_length(uint8_t opcode, uint16_t operand_size, bool prefix_present)
 {
-    // We need only the lower nibble.
-    byte2 &= 0xf;
+    enum instruction_class class = opcode >> 4;
+    enum instruction_type op = opcode & 0xf;
 
-    switch (opcode >> 4)
+    switch (class)
     {
         case IC_REGREG:
-            return (((opcode & 0xf) == IT_REGREG_PUSHFD) || ((opcode & 0xf) == IT_REGREG_POPFD))
-                ? 1
-                : 2;
+            // prefix + opcode + rbyte(optional)
+            return prefix_present + (
+                ((op == IT_REGREG_PUSHFQ) || op == IT_REGREG_POPFQ)
+                    ? 1
+                    : 2
+            );
         case IC_XREGREG:
-            return 2;
+            // prefix + opcode + rbyte
+            return prefix_present + 2;
         case IC_REGIMM:
-            return (byte2 == 0)
-                ? 3
-                : (byte2 == 1)
-                ? 4
-                : 6;
+        {
+            // prefix + opcode + rbyte + imm
+
+            uint8_t imm_bytes_count = 0;
+            switch (operand_size)
+            {
+                case 8:
+                    imm_bytes_count = 1;
+                    break;
+                case 16:
+                    imm_bytes_count = 2;
+                    break;
+                case 32:
+                    imm_bytes_count = 4;
+                    break;
+                case 64:
+                    imm_bytes_count = 8;
+            }
+
+            return prefix_present + 2 + imm_bytes_count;
+        }
         case IC_MEM:
-            return 4;
+            // opcode + rbyte + imm24(addr)
+            return 5;
         case IC_BRANCH:
-            return ((opcode & 0xf) == IT_BRANCH_RET) ? 1 : 4;
+            // opcode + imm24(addr,optional)
+            return (op == IT_BRANCH_RET) ? 1 : 4;
         case IC_XBRANCH:
+            // opcode + imm24(addr)
             return 4;
         case IC_MISC:
-            // IC_MISC instructions have a length of 1 byte for now.
+            // opcode
+            return 1;
+        case IC_PREFIX:
+            // prefix
             return 1;
         default:
-            // So we don't accidentally step over potentially valid instructions.
+            // Return 1 so we don't accidentally step over potentially valid instructions.
             return 1;
     }
 }
 
 // Checks if a file name ends in an extension.
-static inline bool ends_with(const char *filename, const char *ext)
+static inline bool ends_with(const char *restrict filename, const char *restrict ext)
 {
     size_t filename_length = strlen(filename);
     size_t ext_length = strlen(ext);
@@ -228,31 +263,33 @@ static inline bool ends_with(const char *filename, const char *ext)
     return strcmp(filename + filename_length - ext_length, ext) == 0;
 }
 
-// Register index validation, a macro exclusive to the assembler.
-#define VALIDATE_REG_INDEX(idx, name) \
-    if ((idx) < 0) \
-    { \
-        ERROR_FMT("Invalid register \"%s\"", name); \
-        fclose(fin); \
-        fclose(fout); \
-        return ERR_MALFORMED; \
-    }
-
 // Validates the register index passed.
 #define _VALIDATE_REG_INDEX(idx, name) \
-    if ((idx) < 0) \
-    { \
-        ERROR_FMT("Invalid register \"%s\"", name); \
-        exit(ERR_MALFORMED); \
-    }
+    do { \
+        if ((idx) < 0) \
+        { \
+            emit_error("invalid register: '%s'", name); \
+        } \
+    } while (false);
+
+// Validates the address if it fits in the current memory range.
+#define VALIDATE_ADDR(addr, rip) \
+    do { \
+        if ((addr) > MEM_SIZE) \
+        { \
+            emit_error("at address 0x%llx: memory address out of bounds: 0x%llx", rip, addr); \
+        } \
+    } while (false);
 
 // Macro to conditionally jump to an address in memory.
 #define JUMP(addr, condition) \
-    if (condition) \
-    { \
-        dip = addr; \
-        continue; \
-    }
+    do { \
+        if (condition) \
+        { \
+            rip = addr; \
+            continue; \
+        } \
+    } while (false);
 
 #define _
 #undef _

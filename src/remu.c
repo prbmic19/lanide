@@ -1,13 +1,18 @@
+#include "argparser.h"
 #include "definitions.h"
-#include "args.h"
+#include "diag.h"
+#include <errno.h>
 
 static const char *reg_names[REG_COUNT] = {
-    "dxa", "dxb", "dxc",                        // Accumulator, general, counter
-    "dd0", "dd1", "dd2", "dd3", "dd4", "dd5",   // Data/arguments
-    "dbp", "dsp",                               // Base pointer, stack pointer
-    "ds0", "ds1", "ds2", "ds3", "ds4",          // Callee-saved registers
-    "dip", "dflags"                             // Instruction pointer, flags
+    "rxa", "rxb", "rxc", "rxd",
+    "rxe", "rxi", "rbp", "rsp",
+    "r8", "r9", "r10", "r11",
+    "r12", "r13", "r14", "r15",
+    "rip", "rflags"
 };
+
+static FILE *fin = NULL;
+static uint8_t *memory = NULL;
 
 // Enumeration of ALU operations used in `update_status()` and `alu_execute()`.
 enum alu_op
@@ -15,7 +20,10 @@ enum alu_op
     ALU_ADD,
     ALU_SUB,
     ALU_MUL,
+    ALU_MULH,
+    ALU_SMULH,
     ALU_DIV,
+    ALU_SDIV,
     ALU_AND,
     ALU_OR,
     ALU_XOR,
@@ -25,270 +33,320 @@ enum alu_op
     ALU_TEST
 };
 
-bool compute_parity(int32_t number)
+static inline bool compute_parity(u64_it number)
 {
     number ^= number >> 4;
     number &= 0xf;
     return !(0x6996 >> number & 1);
 }
 
+static inline u64_it get_mask_for_size(uint16_t size)
+{
+    if (size >= 64)
+    {
+        return ~0ull;
+    }
+    return ((1ull << size) - 1ull);
+}
+
 // Updates flags based on the result and operands given.
-static inline void update_flags(uint32_t registers[], enum alu_op operation, int32_t result, int32_t lhs, int32_t rhs)
+static inline void update_flags(u64_it registers[], enum alu_op operation, u64_it result, u64_it lhs, u64_it rhs)
 {
     if (result == 0)
     {
-        dflags |= FLAG_ZF;
+        rflags |= FLAG_ZF;
     }
     else
     {
-        dflags &= ~FLAG_ZF;
+        rflags &= ~FLAG_ZF;
     }
 
-    if (result < 0)
+    // No cast required :P
+    // Semantically better as well. Since SF reflects the sign bit value.
+    if ((result >> 63) & 1)
     {
-        dflags |= FLAG_SF;
+        rflags |= FLAG_SF;
     }
     else
     {
-        dflags &= ~FLAG_SF;
+        rflags &= ~FLAG_SF;
     }
 
     if (compute_parity(result))
     {
-        dflags |= FLAG_PF;
+        rflags |= FLAG_PF;
     }
     else
     {
-        dflags &= ~FLAG_PF;
+        rflags &= ~FLAG_PF;
     }
 
     if (((lhs ^ rhs ^ result) & 0x10) != 0)
     {
-        dflags |= FLAG_AF;
+        rflags |= FLAG_AF;
     }
     else
     {
-        dflags &= ~FLAG_AF;
+        rflags &= ~FLAG_AF;
     }
 
     switch (operation)
     {
         case ALU_ADD:
-            if ((uint32_t)result < (uint32_t)lhs)
+            if (result < lhs)
             {
-                dflags |= FLAG_CF;
+                rflags |= FLAG_CF;
             }
             else
             {
-                dflags &= ~FLAG_CF;
+                rflags &= ~FLAG_CF;
             }
 
-            if (((lhs ^ result) & (rhs ^ result)) >> 31)
+            if (((lhs ^ result) & (rhs ^ result)) >> 63)
             {
-                dflags |= FLAG_OF;
+                rflags |= FLAG_OF;
             }
             else
             {
-                dflags &= ~FLAG_OF;
+                rflags &= ~FLAG_OF;
             }
             break;
         case ALU_CMP:
         case ALU_SUB:
-            // Borrow
-            if ((uint32_t)rhs > (uint32_t)lhs)
+            if (rhs > lhs)
             {
-                dflags |= FLAG_CF;
+                rflags |= FLAG_CF;
             }
             else
             {
-                dflags &= ~FLAG_CF;
+                rflags &= ~FLAG_CF;
             }
-            
-            if (((lhs ^ rhs) & (lhs ^ result)) >> 31)
+
+            if (((lhs ^ rhs) & (lhs ^ result)) >> 63)
             {
-                dflags |= FLAG_OF;
+                rflags |= FLAG_OF;
             }
             else
             {
-                dflags &= ~FLAG_OF;
+                rflags &= ~FLAG_OF;
             }
             break;
         case ALU_MUL:
-            if ((int64_t)lhs * (int64_t)rhs > INT32_MAX || (int64_t)lhs * (int64_t)rhs < INT32_MIN)
+            __uint128_t result128 = (__uint128_t)lhs * (__uint128_t)rhs;
+            if (result128 >> 64)
             {
-                dflags |= FLAG_CF | FLAG_OF;
+                rflags |= FLAG_CF | FLAG_OF;
             }
             else
             {
-                dflags &= ~(FLAG_CF | FLAG_OF);
+                rflags &= ~(FLAG_CF | FLAG_OF);
             }
             break;
         case ALU_NEG:
             if (lhs == 0)
             {
-                dflags |= FLAG_CF;
+                rflags |= FLAG_CF;
             }
             else
             {
-                dflags &= ~FLAG_CF;
+                rflags &= ~FLAG_CF;
             }
             break;
         default:
-            // Division and logical operations don't generate CF/OF
-            dflags &= ~(FLAG_CF | FLAG_OF);
+            // DIV, SDIV, MULH, SMULH, and logical operations clear CF/OF
+            rflags &= ~(FLAG_CF | FLAG_OF);
     }
 }
 
 // Executes ALU operations, subsequently updating flags.
-static inline void alu_execute(uint32_t registers[], enum alu_op operation, uint8_t rd32, int32_t rhs)
+static inline void alu_execute(u64_it registers[], enum alu_op operation, uint8_t rd64, u64_it rhs, uint16_t operand_size)
 {
-    int32_t lhs = registers[rd32];
-    int32_t result = registers[rd32];
-    // For discarding results, also the one passed to update_flags()
-    int32_t throwaway;
+    u64_it mask = get_mask_for_size(operand_size);
+    u64_it lhs = registers[rd64] & mask;
+    rhs &= mask;
+
+    u64_it result = lhs;
+    u64_it throwaway = 0;
 
     switch (operation)
     {
         case ALU_ADD:
-            result = throwaway = lhs + rhs;
+            result = (lhs + rhs) & mask;
+            throwaway = result;
             break;
         case ALU_SUB:
-            result = throwaway = lhs - rhs;
+            result = (lhs - rhs) & mask;
+            throwaway = result;
             break;
+        // Lower 64 bits of 128-bit multiplication result
         case ALU_MUL:
-            result = throwaway = lhs * rhs;
+            result = (u64_it)((__uint128_t)lhs * (__uint128_t)rhs) & mask;
+            throwaway = result;
+            break;
+        // Signed and unsigned higher 64 bits of 128-bit multiplication result
+        case ALU_MULH:
+            result = (u64_it)(((__uint128_t)lhs * (__uint128_t)rhs) >> 64);
+            throwaway = result;
+            break;
+        case ALU_SMULH:
+            result = (u64_it)(((__int128_t)(i64_it)lhs * (__int128_t)(i64_it)rhs) >> 64);
+            throwaway = result;
             break;
         case ALU_DIV:
-            result = throwaway = lhs / rhs;
+            if (rhs == 0)
+            {
+                emit_fatal("at address 0x%llx: division by zero", rip);
+            }
+            result = (lhs / rhs) & mask;
+            throwaway = result;
+            break;
+        case ALU_SDIV:
+            if (rhs == 0)
+            {
+                emit_fatal("at address 0x%llx: division by zero", rip);
+            }
+            result = (u64_it)((i64_it)lhs / (i64_it)rhs) & mask;
+            throwaway = result;
             break;
         case ALU_AND:
-            result = throwaway = lhs & rhs;
+            result = (lhs & rhs) & mask;
+            throwaway = result;
             break;
         case ALU_OR:
-            result = throwaway = lhs | rhs;
+            result = (lhs | rhs) & mask;
+            throwaway = result;
             break;
         case ALU_XOR:
-            result = throwaway = lhs ^ rhs;
+            result = (lhs ^ rhs) & mask;
+            throwaway = result;
             break;
         case ALU_NOT:
-            result = throwaway = ~lhs;
+            result = (~lhs) & mask;
+            throwaway = result;
             break;
         case ALU_NEG:
-            result = throwaway = -lhs;
+            result = (-lhs) & mask;
+            throwaway = result;
             break;
         case ALU_CMP:
-            throwaway = lhs - rhs;
+            throwaway = (lhs - rhs) & mask;
             break;
         case ALU_TEST:
-            throwaway = lhs & rhs;
+            throwaway = (lhs & rhs) & mask;
             break;
     }
-    registers[rd32] = (uint32_t)result;
+
+    registers[rd64] = result;
     update_flags(registers, operation, throwaway, lhs, rhs);
 }
 
-// Display help message.
+// Function to display help message.
 static int display_help(void)
 {
-    puts("Usage: remu [options...] <program.lx>\n");
-    puts("Options:\n");
-    puts("    -h, --help          Display this help message");
+    puts("Usage: remu [options] <file>");
+    puts("Options:");
+    puts("    --help              Display this help message");
     puts("    -v, --version       Display version information");
     puts("    --dump-regs         Display register values at program end");
     return 0;
 }
 
-// Display version information.
+// Function to display version information.
 static int display_version(void)
 {
-    puts("Robust Emulator version " REMU_VERSION);
+    puts("remu version " REMU_VERSION);
     return 0;
+}
+
+// Cleanup before exit.
+static void cleanup(void)
+{
+    if (fin)
+    {
+        fclose(fin);
+    }
+    free(memory);
 }
 
 int main(int argc, char *argv[])
 {
-    int exit_code = 0;
     char *input_file = NULL;
-    struct flag flags[] = {
+    struct option options[] = {
         { .name = "--help" },
-        { .name = "-h" }, // Alias of --help
         { .name = "--version" },
         { .name = "-v" }, // Alias of --version
-        // Prints reg values when the program stops.
-        // This is temporarily. Will remove when we get a nice debugger/dumper.
         { .name = "--dump-regs" }
     };
 
-    // Default = input
-    int position = parse_args(argc, argv, flags, sizeof(flags) / sizeof(flags[0]));
+    set_progname(argv[0]);
+    optional_enable_vt_mode();
+    atexit(cleanup);
 
-    // -h, --help
-    if (flags[0].present || flags[1].present)
+    // Default = input;
+    int position = parse_args(argc, argv, options, sizeof(options) / sizeof(options[0]));
+
+    // --help
+    if (options[0].present)
     {
         return display_help();
     }
 
     // -v, --version
-    if (flags[2].present || flags[3].present)
+    if (options[1].present || options[2].present)
     {
         return display_version();
     }
-    
+
+    if (apstat & APEN_NODEFAULT)
+    {
+        emit_fatal("missing input file");
+    }
+
     if (position < 0)
     {
-        ERROR("Missing input file.");
         return 1;
     }
     input_file = argv[position];
 
     if (!ends_with(input_file, ".lx"))
     {
-        ERROR("Input file must have .lx extension.");
-        return 1;
+        emit_error("input file must have '.lx' extension");
     }
 
-    FILE *fin = fopen(input_file, "rb");
+    fin = fopen(input_file, "rb");
     if (!fin)
     {
-        ERROR_FMT("Failed to open input file: %s.", strerror(errno));
-        return 1;
+        // TODO: give better reasons
+        // Such as if the input "file" was actually a directory, that would be invalid.
+        emit_fatal("failed to open input file: %s", strerror(errno));
     }
 
     // Parse magic bytes
-    char header[MAGIC_BYTES_SIZE];
+    char header[MAGIC_BYTES_SIZE] = {0};
     size_t header_read = fread(header, 1, MAGIC_BYTES_SIZE, fin);
-    if (header_read < MAGIC_BYTES_SIZE || memcmp(header, magic_bytes, MAGIC_BYTES_SIZE) != 0)
+    if (header_read != MAGIC_BYTES_SIZE || memcmp(header, magic_bytes, MAGIC_BYTES_SIZE) != 0)
     {
-        ERROR("Invalid or missing magic bytes.");
-        fclose(fin);
-        return ERR_MALFORMED;
+        emit_fatal("invalid or missing magic bytes");
     }
 
     // Parse data offset
     uint32_t data_offset = 0;
     if (fread(&data_offset, sizeof(uint32_t), 1, fin) != 1)
     {
-        ERROR("Failed to read data offset.");
-        fclose(fin);
-        return ERR_MALFORMED;
+        emit_fatal("failed to read data offset");
     }
 
-    uint8_t *memory = (uint8_t *)calloc(MEM_SIZE, 1);
+    memory = calloc(MEM_SIZE, 1);
     if (!memory)
     {
-        ERROR_FMT("Failed to allocate memory: %s.", strerror(errno));
-        fclose(fin);
-        return 1;
+        emit_fatal("failed to allocate memory: %s", strerror(errno));
     }
 
-    // Parse .text section and load at TEXT_BASE
+    // Parse .text section and load it at TEXT_BASE
     size_t text_to_read = (size_t)data_offset;
     if (text_to_read > (MEM_SIZE - TEXT_BASE))
-    {   
-        ERROR("Text section too large to fit in memory.");
-        free(memory);
-        fclose(fin);
-        return ERR_MALFORMED;
+    {
+        emit_fatal("text section too large to fit in memory");
     }
 
     size_t text_read = fread(memory + TEXT_BASE, 1, text_to_read, fin);
@@ -296,377 +354,434 @@ int main(int argc, char *argv[])
     {
         if (feof(fin))
         {
-            WARN_FMT("Text section truncated (expected %zu, got %zu)", text_to_read, text_read);
+            emit_warning("text section truncated: expected %zu bytes, got %zu bytes", text_to_read, text_read);
         }
         else
         {
-            ERROR_FMT("Failed to read input file: %s.", strerror(errno));
-            fclose(fin);
-            free(memory);
-            return 1;
+            emit_fatal("failed to read input file: %s", strerror(errno));
         }
     }
 
-    // Parse .data section and load at DATA_BASE
+    // Parse .data section and load it at DATA_BASE
     size_t data_capacity = MEM_SIZE - DATA_BASE;
     size_t data_read = fread(memory + DATA_BASE, 1, data_capacity, fin);
     if (!feof(fin) && data_read == data_capacity)
     {
-        WARN("Data section may have been truncated.");
+        emit_warning("data section may have been truncated");
     }
 
-    fclose(fin);
+    if (errors_emitted != 0)
+    {
+        return 1;
+    }
 
-    // Initialize registers. Set `dsp` to STACK_BASE and `dip` to TEXT_BASE.
-    uint32_t registers[18] = {
-        [10] = STACK_BASE,
+    // Initialize registers.
+    // Set `rsp` to STACK_BASE and `rip` to TEXT_BASE.
+    u64_it registers[REG_COUNT] = {
+        [7] = STACK_BASE,
         [16] = TEXT_BASE
     };
 
-    while (1)
+    while (true)
     {
         /* Fetch */
-        
-        uint8_t opcode = memory[dip];
-        int length = get_length(opcode, memory[dip + 1]);
 
-        if (dip + length > MEM_SIZE)
+        uint8_t initial_opcode = memory[rip];
+        uint8_t opcode = initial_opcode;
+        bool prefix_present = false;
+        // Default operand size.
+        uint16_t operand_size = 64;
+
+        // Check for prefix
+        if ((initial_opcode >> 4) == IC_PREFIX)
         {
-            ERROR_FMT("Instruction pointer %#x out of bounds.", dip);
-            exit_code = ERR_BOUND;
-            break;
+            prefix_present = true;
+            switch (initial_opcode & 0xf)
+            {
+                case IT_PREFIX_OS32:
+                    operand_size = 32;
+                    break;
+                case IT_PREFIX_OS16:
+                    operand_size = 16;
+                    break;
+                case IT_PREFIX_OS8:
+                    operand_size = 8;
+                    break;
+                default:
+                    emit_fatal("at address 0x%llx: unrecognized prefix type", rip);
+            }
+            // The real opcode is the next byte
+            opcode = memory[rip + 1];
         }
-
-        uint8_t buffer[MAX_INSTRUCTION_LENGTH] = {0};
-        memcpy(buffer, memory + dip, length);
 
         enum instruction_class class = opcode >> 4;
         enum instruction_type op = opcode & 0xf;
+        int length = get_length(opcode, operand_size, prefix_present);
+
+        if (rip + length > MEM_SIZE)
+        {
+            emit_fatal("instruction pointer out of bounds: 0x%llx", rip);
+        }
+
+        uint8_t buffer[MAX_INSTRUCTION_LENGTH] = {0};
+        // Exclude the prefix byte
+        memcpy(buffer, memory + rip + prefix_present, length - prefix_present);
 
         /* Decode and execute */
-        
-        // Too lazy to reorder these cases now that I've reordered the opcodes
+
         switch (class)
         {
             case IC_REGREG:
             {
-                uint8_t rd32 = buffer[1] >> 4;
-                uint8_t rs32 = buffer[1] & 0xf;
+                uint8_t rd64 = buffer[1] >> 4;
+                uint8_t rs64 = buffer[1] & 0xf;
+                u64_it mask = get_mask_for_size(operand_size);
+
+                // I'm pretty sure it's impossible for us to get an illegal instruction here.
+                // IC_REGREG already has 16 defined instructions, and a nibble can hold only 16 possible values.
                 switch (op)
                 {
                     case IT_REGREG_ADD:
-                        alu_execute(registers, ALU_ADD, rd32, registers[rs32]);
-                        break;
-                    case IT_REGREG_SUB:
-                        alu_execute(registers, ALU_SUB, rd32, registers[rs32]);
-                        break;
-                    case IT_REGREG_MUL:
-                        alu_execute(registers, ALU_MUL, rd32, registers[rs32]);
-                        break;
-                    case IT_REGREG_DIV:
-                        if (registers[rs32] == 0)
-                        {
-                            ERROR_FMT("Illegal DIV instruction: Division by zero at address %#x", dip);
-                            exit_code = ERR_ILLINT;
-                            goto halted;
-                        }
-                        alu_execute(registers, ALU_DIV, rd32, registers[rs32]);
+                        alu_execute(registers, ALU_ADD, rd64, registers[rs64], operand_size);
                         break;
                     case IT_REGREG_AND:
-                        alu_execute(registers, ALU_AND, rd32, registers[rs32]);
-                        break;
-                    case IT_REGREG_OR:
-                        alu_execute(registers, ALU_OR, rd32, registers[rs32]);
-                        break;
-                    case IT_REGREG_XOR:
-                        alu_execute(registers, ALU_XOR, rd32, registers[rs32]);
-                        break;
-                    case IT_REGREG_NOT:
-                        alu_execute(registers, ALU_NOT, rd32, 0);
-                        break;
-                    case IT_REGREG_NEG:
-                        alu_execute(registers, ALU_NEG, rd32, 0);
-                        break;
-                    case IT_REGREG_MOV:
-                        registers[rd32] = registers[rs32];
+                        alu_execute(registers, ALU_AND, rd64, registers[rs64], operand_size);
                         break;
                     case IT_REGREG_CMP:
-                        alu_execute(registers, ALU_CMP, rd32, registers[rs32]);
+                        alu_execute(registers, ALU_CMP, rd64, registers[rs64], operand_size);
                         break;
-                    case IT_REGREG_TEST:
-                        alu_execute(registers, ALU_TEST, rd32, registers[rs32]);
+                    case IT_REGREG_DIV:
+                        alu_execute(registers, ALU_DIV, rd64, registers[rs64], operand_size);
                         break;
-                    case IT_REGREG_PUSH:
-                        dsp -= 4;
-                        memory[dsp]     = registers[rd32] & 0xff;
-                        memory[dsp + 1] = (registers[rd32] >> 8) & 0xff;
-                        memory[dsp + 2] = (registers[rd32] >> 16) & 0xff;
-                        memory[dsp + 3] = (registers[rd32] >> 24) & 0xff;
+                    case IT_REGREG_MOV:
+                        registers[rd64] = registers[rs64];
                         break;
-                    case IT_REGREG_PUSHFD:
-                        dsp -= 4;
-                        memory[dsp]     = dflags & 0xff;
-                        memory[dsp + 1] = (dflags >> 8) & 0xff;
-                        memory[dsp + 2] = (dflags >> 16) & 0xff;
-                        memory[dsp + 3] = (dflags >> 24) & 0xff;
+                    case IT_REGREG_MUL:
+                        alu_execute(registers, ALU_MUL, rd64, registers[rs64], operand_size);
+                        break;
+                    case IT_REGREG_NEG:
+                        alu_execute(registers, ALU_NEG, rd64, registers[rs64], operand_size);
+                        break;
+                    case IT_REGREG_NOT:
+                        alu_execute(registers, ALU_NOT, rd64, registers[rs64], operand_size);
+                        break;
+                    case IT_REGREG_OR:
+                        alu_execute(registers, ALU_OR, rd64, registers[rs64], operand_size);
                         break;
                     case IT_REGREG_POP:
-                        registers[rd32] = memory[dsp]
-                            | (memory[dsp + 1] << 8)
-                            | (memory[dsp + 2] << 16)
-                            | (memory[dsp + 3] << 24);
-                        dsp += 4;
+                    {
+                        u64_it value = 0;
+                        for (uint8_t i = 0; i < 8; i++)
+                        {
+                            value |= memory[rsp + i] << (i * 8);
+                        }
+                        rsp += 8;
+                        registers[rd64] = value;
                         break;
-                    case IT_REGREG_POPFD:
-                        dflags = memory[dsp]
-                            | (memory[dsp + 1] << 8)
-                            | (memory[dsp + 2] << 16)
-                            | (memory[dsp + 3] << 24);
-                        dsp += 4;
+                    }
+                    case IT_REGREG_POPFQ:
+                    {
+                        u64_it value = 0;
+                        for (uint8_t i = 0; i < 8; i++)
+                        {
+                            value |= memory[rsp + i] << (i * 8);
+                        }
+                        rsp += 8;
+                        rflags = value;
                         break;
-                    default:
-                        ERROR_FMT("Illegal IC_REGREG instruction %#x at address %#x", op, dip);
-                        exit_code = ERR_ILLINT;
-                        goto halted;
+                    }
+                    case IT_REGREG_PUSH:
+                        rsp -= 8;
+                        for (uint8_t i = 0; i < 8; i++)
+                        {
+                            memory[rsp + i] = (registers[rd64] >> (i * 8)) & 0xff;
+                        }
+                        break;
+                    case IT_REGREG_PUSHFQ:
+                        rsp -= 8;
+                        for (uint8_t i = 0; i < 8; i++)
+                        {
+                            memory[rsp + i] = (rflags >> (i * 8)) & 0xff;
+                        }
+                        break;
+                    case IT_REGREG_SUB:
+                        alu_execute(registers, ALU_SUB, rd64, registers[rs64], operand_size);
+                        break;
+                    case IT_REGREG_TEST:
+                        alu_execute(registers, ALU_TEST, rd64, registers[rs64], operand_size);
+                        break;
+                    case IT_REGREG_XOR:
+                        alu_execute(registers, ALU_XOR, rd64, registers[rs64], operand_size);
+                        break;
                 }
+
+                registers[rd64] &= mask;
                 break;
             }
             case IC_XREGREG:
             {
-                uint8_t rd32 = buffer[1] >> 4;
-                uint8_t rs32 = buffer[1] & 0xf;
+                uint8_t rd64 = buffer[1] >> 4;
+                uint8_t rs64 = buffer[1] & 0xf;
+                u64_it mask = get_mask_for_size(operand_size);
+
                 switch (op)
                 {
                     case IT_XREGREG_XCHG:
                     {
-                        uint32_t temp = registers[rd32];
-                        registers[rd32] = registers[rs32];
-                        registers[rs32] = temp;
+                        u64_it temp = registers[rd64];
+                        registers[rd64] = registers[rs64];
+                        registers[rs64] = temp;
                         break;
                     }
                     case IT_XREGREG_LDIP:
-                        registers[rd32] = dip + length;
+                        registers[rd64] = rip + length;
+                        break;
+                    case IT_XREGREG_MULH:
+                        alu_execute(registers, ALU_MULH, rd64, registers[rs64], operand_size);
+                        break;
+                    case IT_XREGREG_SMULH:
+                        alu_execute(registers, ALU_SMULH, rd64, registers[rs64], operand_size);
+                        break;
+                    case IT_XREGREG_SDIV:
+                        alu_execute(registers, ALU_SDIV, rd64, registers[rs64], operand_size);
                         break;
                     case IT_XREGREG_JMP:
-                        dip = registers[rd32];
+                        rip = registers[rd64];
                         continue;
                     case IT_XREGREG_CALL:
                     {
                         // Push the address of the next instruction on stack
-                        uint32_t return_address = dip + length;
-                        dsp -= 4;
-                        memory[dsp]     = return_address & 0xff;
-                        memory[dsp + 1] = (return_address >> 8) & 0xff;
-                        memory[dsp + 2] = (return_address >> 16) & 0xff;
-                        memory[dsp + 3] = (return_address >> 24) & 0xff;
-                        dip = registers[rd32];
+                        u64_it return_address = rip + length;
+                        rsp -= 8;
+                        for (uint8_t i = 0; i < 8; i++)
+                        {
+                            memory[rsp + i] = (return_address >> i * 8) & 0xff;
+                        }
+                        rip = registers[rd64];
                         continue;
                     }
                     default:
-                        ERROR_FMT("Illegal IC_XREGREG instruction %#x at address %#x", op, dip);
-                        exit_code = ERR_ILLINT;
-                        goto halted;
+                        emit_fatal("at address 0x%llx: illegal IC_XREGREG instruction: 0x%x", rip, op);
                 }
+
+                registers[rd64] &= mask;
                 break;
             }
             case IC_REGIMM:
             {
-                uint8_t r32 = buffer[1] >> 4;
-                uint8_t immsize = buffer[1] & 0xf;
-                uint32_t raw32 = buffer[2] | (buffer[3] << 8) | (buffer[4] << 16) | (buffer[5] << 24);
-                int32_t imm = (int32_t)((immsize == 0)
-                    ? raw32 & 0xff
-                    : (immsize == 1)
-                    ? raw32 & 0xffff
-                    : raw32);
-                
-                // Values 4..15 are reserved
-                if (immsize > 3)
+                uint8_t r64 = buffer[1] >> 4;
+                uint8_t immbytes_count = operand_size / 8;
+                u64_it imm = 0;
+                u64_it mask = get_mask_for_size(operand_size);
+
+                for (uint8_t i = 0; i < immbytes_count; i++)
                 {
-                    ERROR_FMT("Illegal IC_REGIMM instruction: Invalid immsize %u at address %#x", immsize, dip);
-                    exit_code = ERR_ILLINT;
-                    goto halted;
+                    imm |= ((u64_it)buffer[2 + i]) << (i * 8);
                 }
+
+                imm &= mask;
 
                 switch (op)
                 {
+                    case IT_REGIMM_MOV:
+                        registers[r64] = imm;
+                        break;
                     case IT_REGIMM_ADD:
-                        alu_execute(registers, ALU_ADD, r32, imm);
+                        alu_execute(registers, ALU_ADD, r64, imm, operand_size);
                         break;
                     case IT_REGIMM_SUB:
-                        alu_execute(registers, ALU_SUB, r32, imm);
+                        alu_execute(registers, ALU_SUB, r64, imm, operand_size);
                         break;
                     case IT_REGIMM_MUL:
-                        alu_execute(registers, ALU_MUL, r32, imm);
+                        alu_execute(registers, ALU_MUL, r64, imm, operand_size);
+                        break;
+                    case IT_REGIMM_MULH:
+                        alu_execute(registers, ALU_MULH, r64, imm, operand_size);
+                        break;
+                    case IT_REGIMM_SMULH:
+                        alu_execute(registers, ALU_SMULH, r64, imm, operand_size);
                         break;
                     case IT_REGIMM_DIV:
-                        if (imm == 0)
-                        {
-                            ERROR_FMT("Illegal DIV instruction: Division by zero at address %#x", dip);
-                            exit_code = ERR_ILLINT;
-                            goto halted;
-                        }
-                        alu_execute(registers, ALU_DIV, r32, imm);
+                        alu_execute(registers, ALU_DIV, r64, imm, operand_size);
+                        break;
+                    case IT_REGIMM_SDIV:
+                        alu_execute(registers, ALU_SDIV, r64, imm, operand_size);
                         break;
                     case IT_REGIMM_AND:
-                        alu_execute(registers, ALU_AND, r32, imm);
+                        alu_execute(registers, ALU_AND, r64, imm, operand_size);
                         break;
                     case IT_REGIMM_OR:
-                        alu_execute(registers, ALU_OR, r32, imm);
+                        alu_execute(registers, ALU_OR, r64, imm, operand_size);
                         break;
                     case IT_REGIMM_XOR:
-                        alu_execute(registers, ALU_XOR, r32, imm);
-                        break;
-                    case IT_REGIMM_MOV:
-                        registers[r32] = imm;
+                        alu_execute(registers, ALU_XOR, r64, imm, operand_size);
                         break;
                     case IT_REGIMM_CMP:
-                        alu_execute(registers, ALU_CMP, r32, imm);
+                        alu_execute(registers, ALU_CMP, r64, imm, operand_size);
                         break;
                     case IT_REGIMM_TEST:
-                        alu_execute(registers, ALU_TEST, r32, imm);
+                        alu_execute(registers, ALU_TEST, r64, imm, operand_size);
                         break;
                     default:
-                        ERROR_FMT("Illegal IC_REGIMM instruction %#x at address %#x", op, dip);
-                        exit_code = ERR_ILLINT;
-                        goto halted;
+                        emit_fatal("at address 0x%llx: illegal IC_REGIMM instruction: 0x%x", rip, op);
                 }
+
+                registers[r64] &= mask;
                 break;
             }
             case IC_MEM:
             {
-                uint8_t r32 = buffer[1] >> 4;
-                uint32_t imm20 = (buffer[1] & 0xf) | (buffer[2] << 4) | (buffer[3] << 12);
+                uint8_t r64 = buffer[1] >> 4;
+                u64_it addr24 = buffer[2] | (buffer[3] << 8) | (buffer[4] << 16);
+                VALIDATE_ADDR(addr24, rip);
+
                 switch (op)
                 {
                     case IT_MEM_LDB:
-                        registers[r32] = memory[imm20];
+                        registers[r64] = memory[addr24];
                         break;
                     case IT_MEM_LDW:
-                        registers[r32] = memory[imm20] | (memory[imm20 + 1] << 8);
+                        registers[r64] = memory[addr24] | (memory[addr24 + 1] << 8);
                         break;
                     case IT_MEM_LDD:
-                        registers[r32] = memory[imm20]
-                            | (memory[imm20 + 1] << 8)
-                            | (memory[imm20 + 2] << 16)
-                            | (memory[imm20 + 3] << 24);
+                        registers[r64] = memory[addr24]
+                            | (memory[addr24 + 1] << 8)
+                            | (memory[addr24 + 2] << 16)
+                            | (memory[addr24 + 3] << 24);
                         break;
+                    case IT_MEM_LDQ:
+                    {
+                        u64_it temp = 0;
+                        for (int i = 0; i < 8; i++)
+                        {
+                            temp |= memory[addr24 + i] << (i * 8);
+                        }
+                        registers[r64] = temp;
+                        break;
+                    }
                     case IT_MEM_STB:
-                        memory[imm20] = registers[r32] & 0xff;
+                        memory[addr24] = registers[r64] & 0xff;
                         break;
                     case IT_MEM_STW:
-                        memory[imm20]       = registers[r32] & 0xff;
-                        memory[imm20 + 1]   = (registers[r32] >> 8) & 0xff;
+                        memory[addr24] = registers[r64] & 0xff;
+                        memory[addr24 + 1] = (registers[r64] >> 8) & 0xff;
                         break;
                     case IT_MEM_STD:
-                        memory[imm20]     = registers[r32] & 0xff;
-                        memory[imm20 + 1] = (registers[r32] >> 8) & 0xff;
-                        memory[imm20 + 2] = (registers[r32] >> 16) & 0xff;
-                        memory[imm20 + 3] = (registers[r32] >> 24) & 0xff;
+                        memory[addr24] = registers[r64] & 0xff;
+                        memory[addr24 + 1] = (registers[r64] >> 8) & 0xff;
+                        memory[addr24 + 2] = (registers[r64] >> 16) & 0xff;
+                        memory[addr24 + 3] = (registers[r64] >> 24) & 0xff;
+                        break;
+                    case IT_MEM_STQ:
+                        for (int i = 0; i < 8; i++)
+                        {
+                            memory[addr24 + i] = (registers[r64] >> (i * 8)) & 0xff;
+                        }
                         break;
                     default:
-                        ERROR_FMT("Illegal IC_MEM instruction %#x at address %#x", op, dip);
-                        exit_code = ERR_ILLINT;
-                        goto halted;
+                        emit_fatal("at address 0x%llx: illegal IC_MEM instruction: 0x%x", rip, op);
                 }
+
                 break;
             }
             case IC_BRANCH:
             {
-                uint32_t imm20 = (buffer[1] & 0xf) | (buffer[2] << 4) | (buffer[3] << 12);
+                u64_it addr24 = buffer[1] | (buffer[2] << 8) | (buffer[3] << 16);
+                VALIDATE_ADDR(addr24, rip);
+
                 // We continue to avoid "dip += length;"
                 switch (op)
                 {
                     case IT_BRANCH_JMP:
-                        dip = imm20;
+                        rip = addr24;
                         continue;
                     case IT_BRANCH_CALL:
                     {
-                        // Push the address of the next instruction on stack
-                        uint32_t return_address = dip + length;
-                        dsp -= 4;
-                        memory[dsp]     = return_address & 0xff;
-                        memory[dsp + 1] = (return_address >> 8) & 0xff;
-                        memory[dsp + 2] = (return_address >> 16) & 0xff;
-                        memory[dsp + 3] = (return_address >> 24) & 0xff;
-                        dip = imm20;
+                        u64_it return_address = rip + length;
+                        rsp -= 8;
+                        for (int i = 0; i < 8; i++)
+                        {
+                            memory[rsp + i] = (return_address >> (i * 8)) & 0xff;
+                        }
+                        rip = addr24;
                         continue;
                     }
                     case IT_BRANCH_RET:
                     {
-                        uint32_t return_address = memory[dsp]
-                            | (memory[dsp + 1] << 8)
-                            | (memory[dsp + 2] << 16)
-                            | (memory[dsp + 3] << 24);
-                        dsp += 4;
-                        dip = return_address;
+                        u64_it return_address = 0;
+                        for (int i = 0; i < 8; i++)
+                        {
+                            return_address |= memory[rsp + i] << (i * 8);
+                        }
+                        rsp += 8;
+                        rip = return_address;
                         continue;
                     }
                     default:
-                        ERROR_FMT("Illegal IC_BRANCH instruction %#x at address %#x", op, dip);
-                        exit_code = ERR_ILLINT;
-                        goto halted;
+                        emit_fatal("at address 0x%llx: illegal IC_BRANCH instruction: 0x%x", rip, op);
                 }
+
                 break;
             }
             case IC_XBRANCH:
             {
-                uint32_t imm20 = (buffer[1] & 0xf) | (buffer[2] << 4) | (buffer[3] << 12);
+                u64_it addr24 = buffer[1] | (buffer[2] << 8) | (buffer[3] << 16);
+                VALIDATE_ADDR(addr24, rip);
+
                 switch (op)
                 {
                     case IT_XBRANCH_JB:
-                        JUMP(imm20, dflags & FLAG_CF);
+                        JUMP(addr24, rflags & FLAG_CF);
                         break;
                     case IT_XBRANCH_JE:
-                        JUMP(imm20, dflags & FLAG_ZF);
+                        JUMP(addr24, rflags & FLAG_ZF);
                         break;
                     case IT_XBRANCH_JO:
-                        JUMP(imm20, dflags & FLAG_OF);
+                        JUMP(addr24, rflags & FLAG_OF);
                         break;
                     case IT_XBRANCH_JS:
-                        JUMP(imm20, dflags & FLAG_SF);
+                        JUMP(addr24, rflags & FLAG_SF);
                         break;
                     case IT_XBRANCH_JAE:
-                        JUMP(imm20, !(dflags & FLAG_CF));
+                        JUMP(addr24, !(rflags & FLAG_CF));
                         break;
                     case IT_XBRANCH_JNE:
-                        JUMP(imm20, !(dflags & FLAG_ZF));
+                        JUMP(addr24, !(rflags & FLAG_ZF));
                         break;
                     case IT_XBRANCH_JNO:
-                        JUMP(imm20, !(dflags & FLAG_OF));
+                        JUMP(addr24, !(rflags & FLAG_OF));
                         break;
                     case IT_XBRANCH_JNS:
-                        JUMP(imm20, !(dflags & FLAG_SF));
+                        JUMP(addr24, !(rflags & FLAG_SF));
                         break;
                     case IT_XBRANCH_JG:
-                        JUMP(imm20, !(dflags & FLAG_ZF) && ((dflags & FLAG_SF) == (dflags & FLAG_OF)));
+                        JUMP(addr24, !(rflags & FLAG_ZF) && ((rflags & FLAG_SF) == (rflags & FLAG_OF)));
                         break;
                     case IT_XBRANCH_JGE:
-                        JUMP(imm20, (dflags & FLAG_SF) == (dflags & FLAG_OF));
+                        JUMP(addr24, (rflags & FLAG_SF) == (rflags & FLAG_OF));
                         break;
                     case IT_XBRANCH_JL:
-                        JUMP(imm20, (dflags & FLAG_SF) != (dflags & FLAG_OF));
+                        JUMP(addr24, (rflags & FLAG_SF) != (rflags & FLAG_OF));
                         break;
                     case IT_XBRANCH_JLE:
-                        JUMP(imm20, (dflags & FLAG_ZF) && ((dflags & FLAG_SF) != (dflags & FLAG_OF)));
+                        JUMP(addr24, (rflags & FLAG_ZF) && ((rflags & FLAG_SF) != (rflags & FLAG_OF)));
                         break;
                     case IT_XBRANCH_JA:
-                        JUMP(imm20, !(dflags & FLAG_CF) && !(dflags & FLAG_ZF));
+                        JUMP(addr24, !(rflags & FLAG_CF) && !(rflags & FLAG_ZF));
                         break;
                     case IT_XBRANCH_JBE:
-                        JUMP(imm20, (dflags & FLAG_CF) && (dflags & FLAG_ZF));
+                        JUMP(addr24, (rflags & FLAG_CF) && (rflags & FLAG_ZF));
                         break;
                     case IT_XBRANCH_JP:
-                        JUMP(imm20, dflags & FLAG_PF);
+                        JUMP(addr24, rflags & FLAG_PF);
                         break;
                     case IT_XBRANCH_JNP:
-                        JUMP(imm20, !(dflags & FLAG_PF));
+                        JUMP(addr24, !(rflags & FLAG_PF));
                         break;
                     default:
-                        ERROR_FMT("Illegal IC_BRANCH instruction %#x at address %#x", op, dip);
-                        exit_code = ERR_ILLINT;
-                        goto halted;
+                        emit_fatal("at address 0x%llx: illegal IC_XBRANCH instruction: 0x%x", rip, op);
                 }
+
                 break;
             }
             case IC_MISC:
@@ -677,38 +792,33 @@ int main(int argc, char *argv[])
                     case IT_MISC_NOP:
                         break;
                     default:
-                        ERROR_FMT("Illegal IC_MISC instruction %#x at address %#x", op, dip);
-                        exit_code = ERR_ILLINT;
-                        goto halted;
+                        emit_fatal("at address 0x%llx: illegal IC_MISC instruction: 0x%x", rip, op);
                 }
                 break;
             default:
-                ERROR_FMT("Illegal reserved class %#x at address %#x", class, dip);
-                exit_code = ERR_ILLINT;
-                goto halted;
+                emit_fatal("at address 0x%llx: illegal reserved class: 0x%x", rip, class);
         }
 
-        dip += length;
-        // Always 1
-        dflags |= FLAG_RB1;
-        // Always 0
-        dflags &= ~(FLAG_RB3 | FLAG_RB5 | FLAG_RB15);
-        // Clear bits 22..31
-        dflags &= ~0x7fc00000;
+        rip += length;
+        // Always set
+        rflags |= FLAG_RB1;
+        // Always cleared
+        rflags &= ~(FLAG_RB3 | FLAG_RB5 | FLAG_RB15);
+        // Clear bits 22..63
+        rflags &= ~0xffffffffffc00000ull;
     }
 
 halted:
 
     // --dump-regs
     // Will remove this in the future.
-    if (flags[4].present)
+    if (options[3].present)
     {
         for (int i = 0; i < REG_COUNT; i++)
         {
-            printf("%-14s  0x%-14x  %u\n", reg_names[i], registers[i], registers[i]);
+            printf("%-16s  0x%-16llx  %llu\n", reg_names[i], registers[i], registers[i]);
         }
     }
 
-    free(memory);
-    return exit_code;
+    return 0;
 }
