@@ -13,6 +13,12 @@ static uint8_t *memory = NULL;
 // Option to toggle colored display.
 static bool colored_display = false;
 
+// Indicates whether a prefix was parsed.
+static bool prefix_present = false;
+
+// Operand size of an instruction. Default is 64 (bits).
+static uint16_t operand_size = 64;
+
 static const char *reg_names[REG_COUNT][4] = {
     {"rxa", "dxa", "xa", "al"},
     {"rxb", "dxb", "xb", "bl"},
@@ -55,13 +61,24 @@ static const char *color(const char *restrict string, const char *restrict color
     return buffer_ring[current];
 }
 
-static const char *color_mnemonic(const char *mnemonic)
+static const char *color_mnemonic(const char *restrict mnemonic, const char *restrict mnemonic_format)
 {
     static char buffer_ring[COLOR_RING_SLOTS][MNEMONIC_BUFFER_SIZE] = {0};
     static uint32_t index = 0;
     uint32_t current = (index++) % COLOR_RING_SLOTS;
 
-    const char *format = colored_display ? "\x1b[33m%-7s\x1b[0m" : "%-7s";
+    const char *format;
+    if (colored_display)
+    {
+        static char fmtbuf[32];
+        snprintf(fmtbuf, sizeof(fmtbuf), "\x1b[33m%s\x1b[0m", mnemonic_format);
+        format = fmtbuf;
+    }
+    else
+    {
+        format = mnemonic_format;
+    }
+
     snprintf(buffer_ring[current], MNEMONIC_BUFFER_SIZE, format, mnemonic);
     return buffer_ring[current];
 }
@@ -88,17 +105,99 @@ static const char *color_u64(u64_it number, const char *restrict format, const c
 }
 
 // Mnemonics as yellow
-#define MNEMONIC(mnemonic) color_mnemonic(mnemonic)
+#define MNEMONIC(mnemonic) color_mnemonic(mnemonic, "%-7s")
 // Registers as blue
 #define REG(reg) color(reg, "\x1b[34m")
 // Immediates and addresses as high intensity green
 #define IMM(imm) color_u64(imm, "0x%llx", "\x1b[92m")
 
-// Macro to print "(bad)" in case a bad instruction was parsed
-#define BAD_INSTRUCTION() fputs(MNEMONIC("(bad)"), stdout)
+// Validates an opcode.
+static inline bool is_valid_opcode(uint8_t opcode)
+{
+    enum instruction_class class = opcode >> 4;
+    enum instruction_type op = opcode & 0xf;
+
+    switch (class)
+    {
+        case IC_REGREG:
+            if (op >= IT_REGREG_INSTRUCTIONCOUNT)
+            {
+                return false;
+            }
+            return true;
+        case IC_XREGREG:
+            if (op >= IT_XREGREG_INSTRUCTIONCOUNT)
+            {
+                return false;
+            }
+            return true;
+        case IC_REGIMM:
+            if (op >= IT_REGIMM_INSTRUCTIONCOUNT)
+            {
+                return false;
+            }
+            return true;
+        case IC_MEM:
+            if (op >= IT_MEM_INSTRUCTIONCOUNT)
+            {
+                return false;
+            }
+            return true;
+        case IC_BRANCH:
+            if (op >= IT_BRANCH_INSTRUCTIONCOUNT)
+            {
+                return false;
+            }
+            return true;
+        case IC_XBRANCH:
+            if (op >= IT_XBRANCH_INSTRUCTIONCOUNT)
+            {
+                return false;
+            }
+            return true;
+        case IC_PREFIX:
+            if (op >= IT_PREFIX_INSTRUCTIONCOUNT)
+            {
+                return false;
+            }
+            return true;
+        case IC_MISC:
+            if (op >= IT_MISC_INSTRUCTIONCOUNT)
+            {
+                return false;
+            }
+            return true;
+        default:
+            return false;
+    }
+}
+
+// Indicates a bad instruction was parsed.
+static void bad_instruction(uint8_t initial_opcode, u64_it ip)
+{
+    // If we have a prefix, display it
+    if (prefix_present && operand_size)
+    {
+        const char *prefixes[] = {"os.32", "os.16", "os.8"};
+        const char *opt_bad = is_valid_opcode(memory[ip + 1])
+            ? ""
+            : color_mnemonic("(bad)", "%s");
+        uint8_t prefix = initial_opcode & 0xf;
+
+        if (prefix < sizeof(prefixes) / sizeof(prefixes[0]))
+        {
+            printf("%s %s", color_mnemonic(prefixes[prefix], "%s"), opt_bad);
+        }
+
+        return;
+    }
+
+    // Otherwise, just a plain `(bad)` will do.
+    fputs(color_mnemonic("(bad)", "%s"), stdout);
+}
 
 // Prints the raw encoded hex of the instruction at address `addr`.
-static void print_hex_bytes(uint8_t memory[], u64_it address, int length)
+static void print_hex_bytes(u64_it address, int length)
 {
     for (int i = 0; i < length && i < MAX_INSTRUCTION_LENGTH; i++)
     {
@@ -111,7 +210,7 @@ static void print_hex_bytes(uint8_t memory[], u64_it address, int length)
 }
 
 // Returns the number of bytes an immediate occupies based on the operand size.
-static inline uint8_t get_ibc_for_size(uint16_t operand_size)
+static inline uint8_t get_ibc_for_size(void)
 {
     switch (operand_size)
     {
@@ -129,7 +228,7 @@ static inline uint8_t get_ibc_for_size(uint16_t operand_size)
 }
 
 // Returns the second index used for accessing the 2D array `reg_names` based on the operand size given.
-static inline int get_regindex_for_size(uint16_t operand_size)
+static inline int get_regindex_for_size(void)
 {
     switch (operand_size)
     {
@@ -146,15 +245,14 @@ static inline int get_regindex_for_size(uint16_t operand_size)
 }
 
 // Disassembles a range of memory and prints it, starting from `ip` and ending at `end`.
-static void dump_disassembly(uint8_t memory[], u64_it ip, u64_it end)
+static void dump_disassembly(u64_it ip, u64_it end)
 {
     while (ip < end)
     {
         uint8_t initial_opcode = memory[ip];
         uint8_t opcode = initial_opcode;
-        bool prefix_present = false;
-        // Default operand size.
-        uint16_t operand_size = 64;
+        prefix_present = false;
+        operand_size = 64;
 
         // Check for prefix
         if ((initial_opcode >> 4) == IC_PREFIX)
@@ -172,7 +270,7 @@ static void dump_disassembly(uint8_t memory[], u64_it ip, u64_it end)
                     operand_size = 8;
                     break;
                 default:
-                    emit_fatal("at address 0x%llx: unrecognized prefix type", ip);
+                    operand_size = 0;
             }
             // The real opcode is the next byte
             opcode = memory[ip + 1];
@@ -183,19 +281,38 @@ static void dump_disassembly(uint8_t memory[], u64_it ip, u64_it end)
         int length = get_length(opcode, operand_size, prefix_present);
         uint8_t byte1 = memory[ip + 1 + prefix_present];
 
-        // If we have not enough bytes for a full instruction, dump what's left and mark it bad.
-        if (ip + length > end)
+        printf("   %s: \t", color_u64(ip, "0x%-4x", "\x1b[92m"));
+
+        // Mark an unrecognized prefix bad.
+        if (!operand_size || !is_valid_opcode(opcode))
         {
-            printf("   %s:\t", color_u64(ip, "0x%5x", "\x1b[92m"));
-            print_hex_bytes(memory, ip, end - ip);
+            int length = 1;
+
+            // If the prefix is valid, but the opcode isn't
+            if (prefix_present && operand_size && !is_valid_opcode(opcode))
+            {
+                length = 2;
+            }
+
+            print_hex_bytes(ip, length);
             putchar('\t');
-            BAD_INSTRUCTION();
+            bad_instruction(initial_opcode, ip);
             putchar('\n');
-            break;
+
+            ip += length;
+            continue;
         }
 
-        printf("   %s: \t", color_u64(ip, "0x%-4x", "\x1b[92m"));
-        print_hex_bytes(memory, ip, length);
+        // If we have not enough bytes for a full instruction, dump its opcode as a `.byte` directive, and retry.
+        if (ip + length > end)
+        {
+            print_hex_bytes(ip, 1);
+            printf("\t%s %s\n", color_mnemonic(".byte", "%s"), IMM(memory[ip]));
+            ip++;
+            continue;
+        }
+
+        print_hex_bytes(ip, length);
         putchar('\t');
 
         switch (class)
@@ -204,7 +321,7 @@ static void dump_disassembly(uint8_t memory[], u64_it ip, u64_it end)
             {
                 uint8_t rd = byte1 >> 4;
                 uint8_t rs = byte1 & 0xf;
-                int reg_index = get_regindex_for_size(operand_size);
+                int reg_index = get_regindex_for_size();
                 const char *mnemonics[] = {
                     "add", "and", "cmp", "div",
                     "mov", "mul", "neg", "not",
@@ -220,6 +337,11 @@ static void dump_disassembly(uint8_t memory[], u64_it ip, u64_it end)
                         case IT_REGREG_NEG:
                         case IT_REGREG_PUSH:
                         case IT_REGREG_POP:
+                            if (rs)
+                            {
+                                bad_instruction(initial_opcode, ip);
+                                goto next_line;
+                            }
                             printf("%-7s %s", MNEMONIC(mnemonics[op]), REG(reg_names[rd][reg_index]));
                             break;
                         case IT_REGREG_PUSHFQ:
@@ -232,7 +354,7 @@ static void dump_disassembly(uint8_t memory[], u64_it ip, u64_it end)
                 }
                 else
                 {
-                    BAD_INSTRUCTION();
+                    bad_instruction(initial_opcode, ip);
                 }
 
                 break;
@@ -241,10 +363,10 @@ static void dump_disassembly(uint8_t memory[], u64_it ip, u64_it end)
             {
                 uint8_t rd = byte1 >> 4;
                 uint8_t rs = byte1 & 0xf;
-                int reg_index = get_regindex_for_size(operand_size);
+                int reg_index = get_regindex_for_size();
                 const char *mnemonics[] = {"call", "jmp", "ldip", "mulh", "sdiv", "smulh", "xchg"};
 
-                if (op < sizeof(mnemonics) / sizeof(mnemonics[0]))
+                if (op < sizeof(mnemonics) / sizeof(mnemonics[0]) && (byte1 & 0xf) == 0)
                 {
                     switch (op)
                     {
@@ -259,7 +381,7 @@ static void dump_disassembly(uint8_t memory[], u64_it ip, u64_it end)
                 }
                 else
                 {
-                    BAD_INSTRUCTION();
+                    bad_instruction(initial_opcode, ip);
                 }
 
                 break;
@@ -267,8 +389,8 @@ static void dump_disassembly(uint8_t memory[], u64_it ip, u64_it end)
             case IC_REGIMM:
             {
                 uint8_t r = byte1 >> 4;
-                uint8_t immbytes_count = get_ibc_for_size(operand_size);
-                int reg_index = get_regindex_for_size(operand_size);
+                uint8_t immbytes_count = get_ibc_for_size();
+                int reg_index = get_regindex_for_size();
                 u64_it imm = 0;
                 const char *mnemonics[] = {"add", "and", "cmp", "div", "mov", "mul", "mulh", "or", "sdiv", "smulh", "sub", "test"};
 
@@ -277,13 +399,13 @@ static void dump_disassembly(uint8_t memory[], u64_it ip, u64_it end)
                     imm |= ((u64_it)memory[ip + prefix_present + 2 + i]) << (i * 8);
                 }
 
-                if (op < sizeof(mnemonics) / sizeof(mnemonics[0]))
+                if (op < sizeof(mnemonics) / sizeof(mnemonics[0]) && (byte1 & 0xf) == 0)
                 {
                     printf("%-7s %s,%s", MNEMONIC(mnemonics[op]), REG(reg_names[r][reg_index]), IMM(imm));
                 }
                 else
                 {
-                    BAD_INSTRUCTION();
+                    bad_instruction(initial_opcode, ip);
                 }
 
                 break;
@@ -294,12 +416,10 @@ static void dump_disassembly(uint8_t memory[], u64_it ip, u64_it end)
                 u64_it addr24 = memory[ip + prefix_present + 2]
                     | (memory[ip + prefix_present + 3] << 8)
                     | (memory[ip + prefix_present + 4] << 16);
-                int reg_index = get_regindex_for_size(operand_size);
+                int reg_index = get_regindex_for_size();
                 const char *mnemonics[] = {"ldb", "ldd", "ldq", "ldw", "stb", "std", "stq", "stw"};
 
-                VALIDATE_ADDR(addr24, ip);
-
-                if (op < sizeof(mnemonics) / sizeof(mnemonics[0]))
+                if (op < sizeof(mnemonics) / sizeof(mnemonics[0]) && (byte1 & 0xf) == 0)
                 {
                     // ST* instructions (store)
                     if (mnemonics[op][0] == 's')
@@ -312,17 +432,19 @@ static void dump_disassembly(uint8_t memory[], u64_it ip, u64_it end)
                         printf("%-7s %s,%s", MNEMONIC(mnemonics[op]), REG(reg_names[r][reg_index]), IMM(addr24));
                     }
                 }
+                else
+                {
+                    bad_instruction(initial_opcode, ip);
+                }
 
                 break;
             }
             case IC_BRANCH:
             {
-                u64_it addr24 = memory[ip + prefix_present + 2]
-                    | (memory[ip + prefix_present + 3] << 8)
-                    | (memory[ip + prefix_present + 4] << 16);
+                u64_it addr24 = memory[ip + prefix_present + 1]
+                    | (memory[ip + prefix_present + 2] << 8)
+                    | (memory[ip + prefix_present + 3] << 16);
                 const char *mnemonics[] = {"call", "jmp", "ret"};
-
-                VALIDATE_ADDR(addr24, ip);
 
                 if (op < sizeof(mnemonics) / sizeof(mnemonics[0]))
                 {
@@ -337,19 +459,17 @@ static void dump_disassembly(uint8_t memory[], u64_it ip, u64_it end)
                 }
                 else
                 {
-                    BAD_INSTRUCTION();
+                    bad_instruction(initial_opcode, ip);
                 }
 
                 break;
             }
             case IC_XBRANCH:
             {
-                u64_it addr24 = memory[ip + prefix_present + 2]
-                    | (memory[ip + prefix_present + 3] << 8)
-                    | (memory[ip + prefix_present + 4] << 16);
+                u64_it addr24 = memory[ip + prefix_present + 1]
+                    | (memory[ip + prefix_present + 2] << 8)
+                    | (memory[ip + prefix_present + 3] << 16);
                 const char *mnemonics[] = {"ja", "jae", "jb", "jbe", "je", "jg", "jge", "jl", "jle", "jno", "jne", "jnp", "jns", "jo", "jp", "js"};
-
-                VALIDATE_ADDR(addr24, ip);
 
                 if (op < sizeof(mnemonics) / sizeof(mnemonics[0]))
                 {
@@ -357,14 +477,15 @@ static void dump_disassembly(uint8_t memory[], u64_it ip, u64_it end)
                 }
                 else
                 {
-                    BAD_INSTRUCTION();
+                    bad_instruction(initial_opcode, ip);
                 }
 
                 break;
             }
+            // Just to ensure
             case IC_PREFIX:
             {
-                const char *prefixes[] = {"OS32", "OS16", "OS8"};
+                const char *prefixes[] = {"os.32", "os.16", "os.8"};
 
                 if (op < sizeof(prefixes) / sizeof(prefixes[0]))
                 {
@@ -372,7 +493,7 @@ static void dump_disassembly(uint8_t memory[], u64_it ip, u64_it end)
                 }
                 else
                 {
-                    BAD_INSTRUCTION();
+                    bad_instruction(initial_opcode, ip);
                 }
 
                 break;
@@ -387,14 +508,16 @@ static void dump_disassembly(uint8_t memory[], u64_it ip, u64_it end)
                 }
                 else
                 {
-                    BAD_INSTRUCTION();
+                    bad_instruction(initial_opcode, ip);
                 }
 
                 break;
             }
             default:
-                BAD_INSTRUCTION();
+                bad_instruction(initial_opcode, ip);
         }
+
+next_line:
 
         putchar('\n');
         ip += length;
@@ -543,13 +666,13 @@ int main(int argc, char *argv[])
     printf("Target: %s\n\n", input_file);
 
     puts("Disassembly of section .text:\n");
-    dump_disassembly(memory, TEXT_BASE, TEXT_BASE + text_read);
+    dump_disassembly(TEXT_BASE, TEXT_BASE + text_read);
 
     // --all-sections
     if (options[3].present)
     {
         puts("\nDisassembly of section .data:\n");
-        dump_disassembly(memory, DATA_BASE, DATA_BASE + data_read);
+        dump_disassembly(DATA_BASE, DATA_BASE + data_read);
     }
 
     return 0;

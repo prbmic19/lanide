@@ -65,7 +65,7 @@ static inline enum instruction_type get_prefix_for_size(uint16_t operand_size)
 }
 
 // Prepends a byte to an instruction. Useful for when adding prefixes.
-void prepend_byte(struct instruction *ei, uint8_t byte)
+static void prepend_byte(struct instruction *ei, uint8_t byte)
 {
     if (ei->length >= MAX_INSTRUCTION_LENGTH)
     {
@@ -227,9 +227,9 @@ static void make_xbranch(struct instruction *ei, enum instruction_type it, u64_i
 {
     ei->length = 4;
     ei->bytes[0] = (IC_XBRANCH << 4) | (it & 0xf);
-    ei->bytes[2] = addr24 & 0xff;
-    ei->bytes[3] = (addr24 >> 8) & 0xff;
-    ei->bytes[4] = (addr24 >> 16) & 0xff;
+    ei->bytes[1] = addr24 & 0xff;
+    ei->bytes[2] = (addr24 >> 8) & 0xff;
+    ei->bytes[3] = (addr24 >> 16) & 0xff;
 }
 
 // Encodes IC_MISC instructions.
@@ -476,7 +476,7 @@ ENCODER_DEFINE(push, ei, r64, a)
     make_regreg(ei, IT_REGREG_PUSH, r, 0);
 }
 
-ENCODER_DEFINE(pushfd, ei, a, b)
+ENCODER_DEFINE(pushfq, ei, a, b)
 {
     (void)a;
     (void)b;
@@ -491,7 +491,7 @@ ENCODER_DEFINE(pop, ei, r64, a)
     make_regreg(ei, IT_REGREG_POP, r, 0);
 }
 
-ENCODER_DEFINE(popfd, ei, a, b)
+ENCODER_DEFINE(popfq, ei, a, b)
 {
     (void)a;
     (void)b;
@@ -772,9 +772,9 @@ const struct instruction_entry instruction_table[] = {
     {"not", enc_not},
     {"or", enc_or},
     {"pop", enc_pop},
-    {"popfd", enc_popfd},
+    {"popfq", enc_popfq},
     {"push", enc_push},
-    {"pushfd", enc_pushfd},
+    {"pushfq", enc_pushfq},
     {"ret", enc_ret},
     {"stb", enc_stb},
     {"std", enc_std},
@@ -787,4 +787,4 @@ const struct instruction_entry instruction_table[] = {
 };
 
 // The number of instructions. Includes aliases.
-const unsigned short instruction_count = sizeof(instruction_table) / sizeof(instruction_table[0]);
+const uint16_t instruction_count = sizeof(instruction_table) / sizeof(instruction_table[0]);

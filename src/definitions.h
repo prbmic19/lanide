@@ -127,6 +127,7 @@ enum instruction_type
     IT_REGREG_SUB,
     IT_REGREG_TEST,
     IT_REGREG_XOR,
+    IT_REGREG_INSTRUCTIONCOUNT, // Special: marks end (also gives count) of IC_REGREG instructions
 
     IT_XREGREG_CALL = 0,
     IT_XREGREG_JMP,
@@ -135,6 +136,7 @@ enum instruction_type
     IT_XREGREG_SDIV,
     IT_XREGREG_SMULH,
     IT_XREGREG_XCHG,
+    IT_XREGREG_INSTRUCTIONCOUNT, // Special: marks end (also gives count) of IC_XREGREG instructions
 
     IT_REGIMM_ADD = 0,
     IT_REGIMM_AND,
@@ -149,6 +151,7 @@ enum instruction_type
     IT_REGIMM_SUB,
     IT_REGIMM_TEST,
     IT_REGIMM_XOR,
+    IT_REGIMM_INSTRUCTIONCOUNT, // Special: marks end (also gives count) of IC_REGIMM instructions
 
     IT_MEM_LDB = 0,
     IT_MEM_LDD,
@@ -158,10 +161,12 @@ enum instruction_type
     IT_MEM_STD,
     IT_MEM_STQ,
     IT_MEM_STW,
+    IT_MEM_INSTRUCTIONCOUNT, // Special: marks end (also gives count) of IC_MEM instructions
 
     IT_BRANCH_CALL = 0,
     IT_BRANCH_JMP,
     IT_BRANCH_RET,
+    IT_BRANCH_INSTRUCTIONCOUNT, // Special: marks end (also gives count) of IC_BRANCH instructions
 
     IT_XBRANCH_JA = 0,
     IT_XBRANCH_JAE,
@@ -179,14 +184,16 @@ enum instruction_type
     IT_XBRANCH_JO,
     IT_XBRANCH_JP,
     IT_XBRANCH_JS,
+    IT_XBRANCH_INSTRUCTIONCOUNT, // Special: marks end (also gives count) of IC_XBRANCH instructions
 
     IT_PREFIX_OS32 = 0,
     IT_PREFIX_OS16,
     IT_PREFIX_OS8,
-    IT_PREFIX_VECX, /* Reserved */
+    IT_PREFIX_INSTRUCTIONCOUNT, // Special: marks end (also gives count) of IC_PREFIX prefixes
 
     IT_MISC_HLT = 0,
-    IT_MISC_NOP
+    IT_MISC_NOP,
+    IT_MISC_INSTRUCTIONCOUNT, // Special: marks end (also gives count) of IC_MISC isntructions
 };
 
 // Returns the length of the instruction based on the opcode and operand size.
@@ -265,31 +272,37 @@ static inline bool ends_with(const char *restrict filename, const char *restrict
 
 // Validates the register index passed.
 #define _VALIDATE_REG_INDEX(idx, name) \
-    do { \
+    do \
+    { \
         if ((idx) < 0) \
         { \
             emit_error("invalid register: '%s'", name); \
         } \
-    } while (false);
+    } \
+    while (false)
 
 // Validates the address if it fits in the current memory range.
 #define VALIDATE_ADDR(addr, rip) \
-    do { \
+    do \
+    { \
         if ((addr) > MEM_SIZE) \
         { \
             emit_error("at address 0x%llx: memory address out of bounds: 0x%llx", rip, addr); \
         } \
-    } while (false);
+    } \
+    while (false)
 
 // Macro to conditionally jump to an address in memory.
 #define JUMP(addr, condition) \
-    do { \
+    do \
+    { \
         if (condition) \
         { \
             rip = addr; \
             continue; \
         } \
-    } while (false);
+    } \
+    while (false)
 
 #define _
 #undef _

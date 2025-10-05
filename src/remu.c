@@ -14,6 +14,9 @@ static const char *reg_names[REG_COUNT] = {
 static FILE *fin = NULL;
 static uint8_t *memory = NULL;
 
+// Default operand size.
+uint16_t operand_size = 64;
+
 // Enumeration of ALU operations used in `update_status()` and `alu_execute()`.
 enum alu_op
 {
@@ -40,13 +43,13 @@ static inline bool compute_parity(u64_it number)
     return !(0x6996 >> number & 1);
 }
 
-static inline u64_it get_mask_for_size(uint16_t size)
+static inline u64_it get_mask_for_size(void)
 {
-    if (size >= 64)
+    if (operand_size >= 64)
     {
         return ~0ull;
     }
-    return ((1ull << size) - 1ull);
+    return ((1ull << operand_size) - 1ull);
 }
 
 // Updates flags based on the result and operands given.
@@ -159,9 +162,9 @@ static inline void update_flags(u64_it registers[], enum alu_op operation, u64_i
 }
 
 // Executes ALU operations, subsequently updating flags.
-static inline void alu_execute(u64_it registers[], enum alu_op operation, uint8_t rd64, u64_it rhs, uint16_t operand_size)
+static inline void alu_execute(u64_it registers[], enum alu_op operation, uint8_t rd64, u64_it rhs)
 {
-    u64_it mask = get_mask_for_size(operand_size);
+    u64_it mask = get_mask_for_size();
     u64_it lhs = registers[rd64] & mask;
     rhs &= mask;
 
@@ -389,8 +392,7 @@ int main(int argc, char *argv[])
         uint8_t initial_opcode = memory[rip];
         uint8_t opcode = initial_opcode;
         bool prefix_present = false;
-        // Default operand size.
-        uint16_t operand_size = 64;
+        operand_size = 64;
 
         // Check for prefix
         if ((initial_opcode >> 4) == IC_PREFIX)
@@ -414,6 +416,8 @@ int main(int argc, char *argv[])
             opcode = memory[rip + 1];
         }
 
+        rip += prefix_present;
+
         enum instruction_class class = opcode >> 4;
         enum instruction_type op = opcode & 0xf;
         int length = get_length(opcode, operand_size, prefix_present);
@@ -435,38 +439,38 @@ int main(int argc, char *argv[])
             {
                 uint8_t rd64 = buffer[1] >> 4;
                 uint8_t rs64 = buffer[1] & 0xf;
-                u64_it mask = get_mask_for_size(operand_size);
+                u64_it mask = get_mask_for_size();
 
                 // I'm pretty sure it's impossible for us to get an illegal instruction here.
                 // IC_REGREG already has 16 defined instructions, and a nibble can hold only 16 possible values.
                 switch (op)
                 {
                     case IT_REGREG_ADD:
-                        alu_execute(registers, ALU_ADD, rd64, registers[rs64], operand_size);
+                        alu_execute(registers, ALU_ADD, rd64, registers[rs64]);
                         break;
                     case IT_REGREG_AND:
-                        alu_execute(registers, ALU_AND, rd64, registers[rs64], operand_size);
+                        alu_execute(registers, ALU_AND, rd64, registers[rs64]);
                         break;
                     case IT_REGREG_CMP:
-                        alu_execute(registers, ALU_CMP, rd64, registers[rs64], operand_size);
+                        alu_execute(registers, ALU_CMP, rd64, registers[rs64]);
                         break;
                     case IT_REGREG_DIV:
-                        alu_execute(registers, ALU_DIV, rd64, registers[rs64], operand_size);
+                        alu_execute(registers, ALU_DIV, rd64, registers[rs64]);
                         break;
                     case IT_REGREG_MOV:
                         registers[rd64] = registers[rs64];
                         break;
                     case IT_REGREG_MUL:
-                        alu_execute(registers, ALU_MUL, rd64, registers[rs64], operand_size);
+                        alu_execute(registers, ALU_MUL, rd64, registers[rs64]);
                         break;
                     case IT_REGREG_NEG:
-                        alu_execute(registers, ALU_NEG, rd64, registers[rs64], operand_size);
+                        alu_execute(registers, ALU_NEG, rd64, registers[rs64]);
                         break;
                     case IT_REGREG_NOT:
-                        alu_execute(registers, ALU_NOT, rd64, registers[rs64], operand_size);
+                        alu_execute(registers, ALU_NOT, rd64, registers[rs64]);
                         break;
                     case IT_REGREG_OR:
-                        alu_execute(registers, ALU_OR, rd64, registers[rs64], operand_size);
+                        alu_execute(registers, ALU_OR, rd64, registers[rs64]);
                         break;
                     case IT_REGREG_POP:
                     {
@@ -505,13 +509,16 @@ int main(int argc, char *argv[])
                         }
                         break;
                     case IT_REGREG_SUB:
-                        alu_execute(registers, ALU_SUB, rd64, registers[rs64], operand_size);
+                        alu_execute(registers, ALU_SUB, rd64, registers[rs64]);
                         break;
                     case IT_REGREG_TEST:
-                        alu_execute(registers, ALU_TEST, rd64, registers[rs64], operand_size);
+                        alu_execute(registers, ALU_TEST, rd64, registers[rs64]);
                         break;
                     case IT_REGREG_XOR:
-                        alu_execute(registers, ALU_XOR, rd64, registers[rs64], operand_size);
+                        alu_execute(registers, ALU_XOR, rd64, registers[rs64]);
+                        break;
+                    case IT_REGREG_INSTRUCTIONCOUNT:
+                        // Ignore.
                         break;
                 }
 
@@ -522,7 +529,7 @@ int main(int argc, char *argv[])
             {
                 uint8_t rd64 = buffer[1] >> 4;
                 uint8_t rs64 = buffer[1] & 0xf;
-                u64_it mask = get_mask_for_size(operand_size);
+                u64_it mask = get_mask_for_size();
 
                 switch (op)
                 {
@@ -537,13 +544,13 @@ int main(int argc, char *argv[])
                         registers[rd64] = rip + length;
                         break;
                     case IT_XREGREG_MULH:
-                        alu_execute(registers, ALU_MULH, rd64, registers[rs64], operand_size);
+                        alu_execute(registers, ALU_MULH, rd64, registers[rs64]);
                         break;
                     case IT_XREGREG_SMULH:
-                        alu_execute(registers, ALU_SMULH, rd64, registers[rs64], operand_size);
+                        alu_execute(registers, ALU_SMULH, rd64, registers[rs64]);
                         break;
                     case IT_XREGREG_SDIV:
-                        alu_execute(registers, ALU_SDIV, rd64, registers[rs64], operand_size);
+                        alu_execute(registers, ALU_SDIV, rd64, registers[rs64]);
                         break;
                     case IT_XREGREG_JMP:
                         rip = registers[rd64];
@@ -560,6 +567,7 @@ int main(int argc, char *argv[])
                         rip = registers[rd64];
                         continue;
                     }
+                    case IT_XREGREG_INSTRUCTIONCOUNT:
                     default:
                         emit_fatal("at address 0x%llx: illegal IC_XREGREG instruction: 0x%x", rip, op);
                 }
@@ -569,10 +577,15 @@ int main(int argc, char *argv[])
             }
             case IC_REGIMM:
             {
+                if ((buffer[1] & 0xf) != 0)
+                {
+                    emit_fatal("at address 0x%llx: illegal IC_REGIMM instruction: reserved bits are nonzero", rip);
+                }
+
                 uint8_t r64 = buffer[1] >> 4;
                 uint8_t immbytes_count = operand_size / 8;
                 u64_it imm = 0;
-                u64_it mask = get_mask_for_size(operand_size);
+                u64_it mask = get_mask_for_size();
 
                 for (uint8_t i = 0; i < immbytes_count; i++)
                 {
@@ -587,41 +600,42 @@ int main(int argc, char *argv[])
                         registers[r64] = imm;
                         break;
                     case IT_REGIMM_ADD:
-                        alu_execute(registers, ALU_ADD, r64, imm, operand_size);
+                        alu_execute(registers, ALU_ADD, r64, imm);
                         break;
                     case IT_REGIMM_SUB:
-                        alu_execute(registers, ALU_SUB, r64, imm, operand_size);
+                        alu_execute(registers, ALU_SUB, r64, imm);
                         break;
                     case IT_REGIMM_MUL:
-                        alu_execute(registers, ALU_MUL, r64, imm, operand_size);
+                        alu_execute(registers, ALU_MUL, r64, imm);
                         break;
                     case IT_REGIMM_MULH:
-                        alu_execute(registers, ALU_MULH, r64, imm, operand_size);
+                        alu_execute(registers, ALU_MULH, r64, imm);
                         break;
                     case IT_REGIMM_SMULH:
-                        alu_execute(registers, ALU_SMULH, r64, imm, operand_size);
+                        alu_execute(registers, ALU_SMULH, r64, imm);
                         break;
                     case IT_REGIMM_DIV:
-                        alu_execute(registers, ALU_DIV, r64, imm, operand_size);
+                        alu_execute(registers, ALU_DIV, r64, imm);
                         break;
                     case IT_REGIMM_SDIV:
-                        alu_execute(registers, ALU_SDIV, r64, imm, operand_size);
+                        alu_execute(registers, ALU_SDIV, r64, imm);
                         break;
                     case IT_REGIMM_AND:
-                        alu_execute(registers, ALU_AND, r64, imm, operand_size);
+                        alu_execute(registers, ALU_AND, r64, imm);
                         break;
                     case IT_REGIMM_OR:
-                        alu_execute(registers, ALU_OR, r64, imm, operand_size);
+                        alu_execute(registers, ALU_OR, r64, imm);
                         break;
                     case IT_REGIMM_XOR:
-                        alu_execute(registers, ALU_XOR, r64, imm, operand_size);
+                        alu_execute(registers, ALU_XOR, r64, imm);
                         break;
                     case IT_REGIMM_CMP:
-                        alu_execute(registers, ALU_CMP, r64, imm, operand_size);
+                        alu_execute(registers, ALU_CMP, r64, imm);
                         break;
                     case IT_REGIMM_TEST:
-                        alu_execute(registers, ALU_TEST, r64, imm, operand_size);
+                        alu_execute(registers, ALU_TEST, r64, imm);
                         break;
+                    case IT_REGIMM_INSTRUCTIONCOUNT:
                     default:
                         emit_fatal("at address 0x%llx: illegal IC_REGIMM instruction: 0x%x", rip, op);
                 }
@@ -631,6 +645,11 @@ int main(int argc, char *argv[])
             }
             case IC_MEM:
             {
+                if ((buffer[1] & 0xf) != 0)
+                {
+                    emit_fatal("at address 0x%llx: illegal IC_REGIMM instruction: reserved bits are nonzero", rip);
+                }
+
                 uint8_t r64 = buffer[1] >> 4;
                 u64_it addr24 = buffer[2] | (buffer[3] << 8) | (buffer[4] << 16);
                 VALIDATE_ADDR(addr24, rip);
@@ -678,6 +697,7 @@ int main(int argc, char *argv[])
                             memory[addr24 + i] = (registers[r64] >> (i * 8)) & 0xff;
                         }
                         break;
+                    case IT_MEM_INSTRUCTIONCOUNT:
                     default:
                         emit_fatal("at address 0x%llx: illegal IC_MEM instruction: 0x%x", rip, op);
                 }
@@ -717,6 +737,7 @@ int main(int argc, char *argv[])
                         rip = return_address;
                         continue;
                     }
+                    case IT_BRANCH_INSTRUCTIONCOUNT:
                     default:
                         emit_fatal("at address 0x%llx: illegal IC_BRANCH instruction: 0x%x", rip, op);
                 }
@@ -778,6 +799,7 @@ int main(int argc, char *argv[])
                     case IT_XBRANCH_JNP:
                         JUMP(addr24, !(rflags & FLAG_PF));
                         break;
+                    case IT_XBRANCH_INSTRUCTIONCOUNT:
                     default:
                         emit_fatal("at address 0x%llx: illegal IC_XBRANCH instruction: 0x%x", rip, op);
                 }
@@ -791,6 +813,7 @@ int main(int argc, char *argv[])
                         goto halted;
                     case IT_MISC_NOP:
                         break;
+                    case IT_MISC_INSTRUCTIONCOUNT:
                     default:
                         emit_fatal("at address 0x%llx: illegal IC_MISC instruction: 0x%x", rip, op);
                 }
