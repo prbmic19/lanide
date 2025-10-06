@@ -8,6 +8,5 @@
 build/
 
 # Don't ignore these!
-!.clang-format
 !.gitattributes
 !.gitignore

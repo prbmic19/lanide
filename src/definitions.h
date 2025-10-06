@@ -1,7 +1,6 @@
 /** Definitions of common macros, constants, and types used. */
 
 #pragma once
-
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -12,32 +11,48 @@
 // Magic bytes put and expected at the start of every .lx file
 static const char magic_bytes[MAGIC_BYTES_SIZE] = {'\x7f', '\x00', '\x00', 'R', 'O', 'B', 'I', 'N'};
 
-/* Versions of each file */
-
-#define RASM_VERSION    "0.3.4"
-#define RDISASM_VERSION "0.3.2"
-#define REMU_VERSION    "0.3.2"
+// Versions of each file
+#define RASM_VERSION    "0.4.0"
+#define RDISASM_VERSION "0.4.1"
+#define REMU_VERSION    "0.4.3"
 
 // Define these using `long long`. It's guaranteed already that `long long` is at least 64 bits wide.
 // It's a bit dangerous to mix `uint64_t` and the `ULL` prefix for integer literals, the compiler might get pedantic about it.
-
 typedef long long i64_it;
 typedef unsigned long long u64_it;
 
 // Amount of memory each process gets
-#define MEM_SIZE    0x100000
-// Start of .text section
+#define MEM_SIZE    0x400000
+
+// Start and end of .text section
 #define TEXT_BASE   0x1000
-// Start of .data section
-#define DATA_BASE   (MEM_SIZE / 2)
-// Start of stack, grows downward
+#define TEXT_SIZE   (MEM_SIZE / 4)
+
+// Start and end of .rodata section
+#define RODATA_BASE (TEXT_BASE + TEXT_SIZE)
+#define RODATA_SIZE (MEM_SIZE / 16)
+
+// Start and end of .data section
+#define DATA_BASE   (RODATA_BASE + RODATA_SIZE)
+#define DATA_SIZE   (MEM_SIZE / 8)
+
+// Start and end of heap
+#define HEAP_BASE   (DATA_BASE + DATA_SIZE)
+#define HEAP_SIZE   (MEM_SIZE * 5 / 16)
+
+// Start and end of stack
 #define STACK_BASE  MEM_SIZE
+#define STACK_SIZE  (MEM_SIZE / 4)
+
+// Offset of .text section in the actual .lx file
+// Magic bytes, rodata offset, and data offset.
+// Also represents the size of the header.
+#define TEXT_FILE_OFFSET (MAGIC_BYTES_SIZE + sizeof(uint32_t) + sizeof(uint32_t))
 
 /**
  * I implemented x86 flags here. I was too lazy to design up my own, and this felt enough.
  * The name RB<n> are reserved bits, and <n> denotes what bit they are.
  */
-
 #define FLAG_CF     0x1
 #define FLAG_RB1    0x2
 #define FLAG_PF     0x4
@@ -65,14 +80,13 @@ typedef unsigned long long u64_it;
 #define STR_EQUAL_LEN(string_dest, string_src, length) \
     (strncmp(string_dest, string_src, length) == 0 && string_src[length] == '\0')
 
-/* IDs of sections in memory */
-
+// IDs of sections in memory
 #define SECT_TEXT       0
-#define SECT_DATA       1
+#define SECT_RODATA     1
+#define SECT_DATA       2
 #define SECT_INVALID    0xffff
 
-/* Useful register macros (although depends on the fact that a "registers" array exists in the current context) */
-
+// Useful register macros (although depends on the fact that a "registers" array exists in the current context)
 #define rsp     registers[7]
 #define rip     registers[16]
 #define rflags  registers[17]
@@ -277,17 +291,6 @@ static inline bool ends_with(const char *restrict filename, const char *restrict
         if ((idx) < 0) \
         { \
             emit_error("invalid register: '%s'", name); \
-        } \
-    } \
-    while (false)
-
-// Validates the address if it fits in the current memory range.
-#define VALIDATE_ADDR(addr, rip) \
-    do \
-    { \
-        if ((addr) > MEM_SIZE) \
-        { \
-            emit_error("at address 0x%llx: memory address out of bounds: 0x%llx", rip, addr); \
         } \
     } \
     while (false)

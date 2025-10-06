@@ -1,4 +1,4 @@
-/** Implementation of diagnostic utility functions. */
+/** Definition of diagnostic utility functions. */
 
 #include "diag.h"
 #include <stdio.h>

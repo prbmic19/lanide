@@ -6,7 +6,7 @@ SOURCE_DIR = src
 # Source files
 ASMSRC = rasm.c eitable.c argparser.c diag.c
 DISASMSRC = rdisasm.c argparser.c diag.c
-EMUSRC = remu.c argparser.c diag.c
+EMUSRC = remu.c mmu.c argparser.c diag.c
 
 # Object files
 ASMOBJ = $(addprefix $(BUILD_DIR)/,$(ASMSRC:.c=.o))

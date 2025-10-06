@@ -40,6 +40,16 @@ static const char *reg_names[REG_COUNT][4] = {
     {"rflags", "dflags", "flags", ""}
 };
 
+// Gets the size of `fin`, a.k.a the opened file.
+static size_t get_file_size(void)
+{
+    long current = ftell(fin);
+    fseek(fin, 0, SEEK_END);
+    long end = ftell(fin);
+    fseek(fin, current, SEEK_SET);
+    return (size_t)end;
+}
+
 /**
  * These functions add color to a string or a number using ANSI color codes, only if `colored_display` is set.
  * `colored_display` can be toggled with the `--color` flag.
@@ -539,7 +549,7 @@ static int display_help(void)
 // Display version information.
 static int display_version(void)
 {
-    puts("rdisasm version" RDISASM_VERSION);
+    puts("rdisasm version " RDISASM_VERSION);
     return 0;
 }
 
@@ -614,6 +624,13 @@ int main(int argc, char *argv[])
         emit_fatal("invalid or missing magic bytes");
     }
 
+    // Parse rodata offset
+    uint32_t rodata_offset = 0;
+    if (fread(&rodata_offset, sizeof(uint32_t), 1, fin) != 1)
+    {
+        emit_fatal("failed to read rodata offset");
+    }
+
     // Parse data offset
     uint32_t data_offset = 0;
     if (fread(&data_offset, sizeof(uint32_t), 1, fin) != 1)
@@ -628,12 +645,13 @@ int main(int argc, char *argv[])
     }
 
     // Parse .text section and load at TEXT_BASE
-    size_t text_to_read = (size_t)data_offset;
-    if (text_to_read > (MEM_SIZE - TEXT_BASE))
+    size_t text_to_read = (size_t)(rodata_offset - TEXT_FILE_OFFSET);
+    if (text_to_read > TEXT_SIZE)
     {
         emit_fatal("text section too large to fit in memory");
     }
 
+    fseek(fin, TEXT_FILE_OFFSET, SEEK_SET);
     size_t text_read = fread(memory + TEXT_BASE, 1, text_to_read, fin);
     if (text_read != text_to_read)
     {
@@ -647,12 +665,46 @@ int main(int argc, char *argv[])
         }
     }
 
-    // Parse .data section and load at DATA_BASE
-    size_t data_capacity = MEM_SIZE - DATA_BASE;
-    size_t data_read = fread(memory + DATA_BASE, 1, data_capacity, fin);
-    if (!feof(fin) && data_read == data_capacity)
+    // Parse .rodata section and load at RODATA_BASE
+    size_t rodata_to_read = (size_t)(data_offset - rodata_offset);
+    if (rodata_to_read > RODATA_SIZE)
     {
-        emit_warning("data section may have been truncated");
+        emit_fatal("rodata section too large to fit in memory");
+    }
+
+    fseek(fin, rodata_offset, SEEK_SET);
+    size_t rodata_read = fread(memory + RODATA_BASE, 1, rodata_to_read, fin);
+    if (rodata_read != rodata_to_read)
+    {
+        if (feof(fin))
+        {
+            emit_warning("rodata section truncated: expected %zu, got %zu", rodata_to_read, rodata_read);
+        }
+        else
+        {
+            emit_fatal("failed to read input file: %s", strerror(errno));
+        }
+    }
+
+    // Parse .data section and load at DATA_BASE
+    size_t data_to_read = (size_t)(get_file_size() - data_offset);
+    if (data_to_read > DATA_SIZE)
+    {
+        emit_fatal("data section too large to fit in memory");
+    }
+
+    fseek(fin, data_offset, SEEK_SET);
+    size_t data_read = fread(memory + DATA_BASE, 1, data_to_read, fin);
+    if (data_read != data_to_read)
+    {
+        if (feof(fin))
+        {
+            emit_warning("data section truncated: expected %zu, got %zu", data_to_read, data_read);
+        }
+        else
+        {
+            emit_fatal("failed to read input file: %s", strerror(errno));
+        }
     }
 
     if (errors_emitted != 0)
@@ -671,6 +723,9 @@ int main(int argc, char *argv[])
     // --all-sections
     if (options[3].present)
     {
+        puts("\nDisassembly of section .rodata:\n");
+        dump_disassembly(RODATA_BASE, RODATA_BASE + rodata_read);
+
         puts("\nDisassembly of section .data:\n");
         dump_disassembly(DATA_BASE, DATA_BASE + data_read);
     }

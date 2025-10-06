@@ -1,4 +1,4 @@
-/** Implementation of encoders for instructions. */
+/** Definition of encoders for instructions. */
 
 #include "definitions.h"
 #include "eitable.h"

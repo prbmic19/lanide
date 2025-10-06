@@ -9,8 +9,9 @@
 
 static FILE *fin = NULL;
 static FILE *fout = NULL;
-static uint8_t *text_buf = NULL;
-static uint8_t *data_buf = NULL;
+static uint8_t *text_buffer = NULL;
+static uint8_t *rodata_buffer = NULL;
+static uint8_t *data_buffer = NULL;
 
 static char *trim(char *string)
 {
@@ -146,8 +147,9 @@ static void cleanup(void)
     {
         fclose(fout);
     }
-    free(text_buf);
-    free(data_buf);
+    free(text_buffer);
+    free(rodata_buffer);
+    free(data_buffer);
 }
 
 int main(int argc, char *argv[])
@@ -209,14 +211,16 @@ int main(int argc, char *argv[])
         emit_fatal("failed to open file: %s", strerror(errno));
     }
 
-    // Allocate space for the .text and .data sections
-    text_buf = calloc(MEM_SIZE / 2, 1);
-    data_buf = calloc(MEM_SIZE / 2, 1);
-    if (!text_buf || !data_buf)
+    // Allocate space for the .text, .rodata, and .data sections
+    text_buffer = calloc(MEM_SIZE / 2, 1);
+    rodata_buffer = calloc(MEM_SIZE / 2, 1);
+    data_buffer = calloc(MEM_SIZE / 2, 1);
+    if (!text_buffer || !rodata_buffer || !data_buffer)
     {
         emit_fatal("failed to allocate memory: %s", strerror(errno));
     }
     size_t text_size = 0;
+    size_t rodata_size = 0;
     size_t data_size = 0;
 
     // "ID" of the current section.
@@ -295,6 +299,10 @@ int main(int argc, char *argv[])
             {
                 current_section = SECT_TEXT;
             }
+            else if (STR_EQUAL_LEN(destination, ".rodata", 7))
+            {
+                current_section = SECT_RODATA;
+            }
             else if (STR_EQUAL_LEN(destination, ".data", 5))
             {
                 current_section = SECT_DATA;
@@ -356,15 +364,23 @@ write:
                 {
                     emit_fatal("text section overflow");
                 }
-                memcpy(text_buf + text_size, ei.bytes, ei.length);
+                memcpy(text_buffer + text_size, ei.bytes, ei.length);
                 text_size += ei.length;
+                break;
+            case SECT_RODATA:
+                if (rodata_size + ei.length > MEM_SIZE / 2)
+                {
+                    emit_fatal("rodata section overflow");
+                }
+                memcpy(rodata_buffer + rodata_size, ei.bytes, ei.length);
+                rodata_size += ei.length;
                 break;
             case SECT_DATA:
                 if (data_size + ei.length > MEM_SIZE / 2)
                 {
                     emit_fatal("data section overflow");
                 }
-                memcpy(data_buf + data_size, ei.bytes, ei.length);
+                memcpy(data_buffer + data_size, ei.bytes, ei.length);
                 data_size += ei.length;
                 break;
             default:
@@ -380,15 +396,22 @@ write:
     // Write the magic bytes
     fwrite(magic_bytes, 1, MAGIC_BYTES_SIZE, fout);
 
+    // Write the offset of .rodata
+    uint32_t rodata_offset = TEXT_FILE_OFFSET + text_size;
+    fwrite(&rodata_offset, sizeof(uint32_t), 1, fout);
+
     // Write the offset of .data
-    uint32_t data_offset = (uint32_t)text_size;
+    uint32_t data_offset = TEXT_FILE_OFFSET + text_size + rodata_size;
     fwrite(&data_offset, sizeof(uint32_t), 1, fout);
 
     // Write the contents of .text
-    fwrite(text_buf, 1, text_size, fout);
+    fwrite(text_buffer, 1, text_size, fout);
+
+    // Write the contents of .rodata
+    fwrite(rodata_buffer, 1, rodata_size, fout);
 
     // Write the contents of .data
-    fwrite(data_buf, 1, data_size, fout);
+    fwrite(data_buffer, 1, data_size, fout);
 
     return 0;
 }

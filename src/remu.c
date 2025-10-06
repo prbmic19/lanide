@@ -1,6 +1,6 @@
 #include "argparser.h"
-#include "definitions.h"
 #include "diag.h"
+#include "mmu.h"
 #include <errno.h>
 
 static const char *reg_names[REG_COUNT] = {
@@ -12,10 +12,10 @@ static const char *reg_names[REG_COUNT] = {
 };
 
 static FILE *fin = NULL;
-static uint8_t *memory = NULL;
+uint8_t *memory = NULL;
 
 // Default operand size.
-uint16_t operand_size = 64;
+static uint16_t operand_size = 64;
 
 // Enumeration of ALU operations used in `update_status()` and `alu_execute()`.
 enum alu_op
@@ -35,6 +35,16 @@ enum alu_op
     ALU_CMP,
     ALU_TEST
 };
+
+// Gets the size of `fin`, a.k.a the opened file.
+static size_t get_file_size(void)
+{
+    long current = ftell(fin);
+    fseek(fin, 0, SEEK_END);
+    long end = ftell(fin);
+    fseek(fin, current, SEEK_SET);
+    return (size_t)end;
+}
 
 static inline bool compute_parity(u64_it number)
 {
@@ -332,6 +342,13 @@ int main(int argc, char *argv[])
         emit_fatal("invalid or missing magic bytes");
     }
 
+    // Parse rodata offset
+    uint32_t rodata_offset = 0;
+    if (fread(&rodata_offset, sizeof(uint32_t), 1, fin) != 1)
+    {
+        emit_fatal("failed to read rodata offset");
+    }
+
     // Parse data offset
     uint32_t data_offset = 0;
     if (fread(&data_offset, sizeof(uint32_t), 1, fin) != 1)
@@ -346,12 +363,13 @@ int main(int argc, char *argv[])
     }
 
     // Parse .text section and load it at TEXT_BASE
-    size_t text_to_read = (size_t)data_offset;
-    if (text_to_read > (MEM_SIZE - TEXT_BASE))
+    size_t text_to_read = (size_t)(rodata_offset - TEXT_FILE_OFFSET);
+    if (text_to_read > TEXT_SIZE)
     {
         emit_fatal("text section too large to fit in memory");
     }
 
+    fseek(fin, TEXT_FILE_OFFSET, SEEK_SET);
     size_t text_read = fread(memory + TEXT_BASE, 1, text_to_read, fin);
     if (text_read != text_to_read)
     {
@@ -365,18 +383,54 @@ int main(int argc, char *argv[])
         }
     }
 
-    // Parse .data section and load it at DATA_BASE
-    size_t data_capacity = MEM_SIZE - DATA_BASE;
-    size_t data_read = fread(memory + DATA_BASE, 1, data_capacity, fin);
-    if (!feof(fin) && data_read == data_capacity)
+    // Parse .rodata section and load it at RODATA_BASE
+    size_t rodata_to_read = (size_t)(data_offset - rodata_offset);
+    if (rodata_to_read > RODATA_SIZE)
     {
-        emit_warning("data section may have been truncated");
+        emit_fatal("rodata section too large to fit in memory");
+    }
+
+    fseek(fin, rodata_offset, SEEK_SET);
+    size_t rodata_read = fread(memory + RODATA_BASE, 1, rodata_to_read, fin);
+    if (rodata_read != rodata_to_read)
+    {
+        if (feof(fin))
+        {
+            emit_warning("rodata section truncated: expected %zu bytes, got %zu bytes", rodata_to_read, rodata_read);
+        }
+        else
+        {
+            emit_fatal("failed to read input file: %s", strerror(errno));
+        }
+    }
+
+    // Parse .data section and load it at DATA_BASE
+    size_t data_to_read = (size_t)(get_file_size() - data_offset);
+    if (data_to_read > DATA_SIZE)
+    {
+        emit_fatal("data section too large to fit in memory");
+    }
+
+    fseek(fin, data_offset, SEEK_SET);
+    size_t data_read = fread(memory + DATA_BASE, 1, data_to_read, fin);
+    if (data_read != data_to_read)
+    {
+        if (feof(fin))
+        {
+            emit_warning("data section truncated: expected %zu bytes, got %zu bytes", data_to_read, data_read);
+        }
+        else
+        {
+            emit_fatal("failed to read input file: %s", strerror(errno));
+        }
     }
 
     if (errors_emitted != 0)
     {
         return 1;
     }
+
+    setup_initial_mappings();
 
     // Initialize registers.
     // Set `rsp` to STACK_BASE and `rip` to TEXT_BASE.
@@ -389,7 +443,7 @@ int main(int argc, char *argv[])
     {
         /* Fetch */
 
-        uint8_t initial_opcode = memory[rip];
+        uint8_t initial_opcode = fetch8(rip);
         uint8_t opcode = initial_opcode;
         bool prefix_present = false;
         operand_size = 64;
@@ -413,10 +467,8 @@ int main(int argc, char *argv[])
                     emit_fatal("at address 0x%llx: unrecognized prefix type", rip);
             }
             // The real opcode is the next byte
-            opcode = memory[rip + 1];
+            opcode = fetch8(rip + 1);
         }
-
-        rip += prefix_present;
 
         enum instruction_class class = opcode >> 4;
         enum instruction_type op = opcode & 0xf;
@@ -428,8 +480,12 @@ int main(int argc, char *argv[])
         }
 
         uint8_t buffer[MAX_INSTRUCTION_LENGTH] = {0};
-        // Exclude the prefix byte
-        memcpy(buffer, memory + rip + prefix_present, length - prefix_present);
+        
+        // Fetch the rest of the instruction, and exclude the prefix byte if it exists.
+        for (int i = 0; i < length - prefix_present; i++)
+        {
+            buffer[i] = fetch8(rip + prefix_present + i);
+        }
 
         /* Decode and execute */
 
@@ -473,40 +529,20 @@ int main(int argc, char *argv[])
                         alu_execute(registers, ALU_OR, rd64, registers[rs64]);
                         break;
                     case IT_REGREG_POP:
-                    {
-                        u64_it value = 0;
-                        for (uint8_t i = 0; i < 8; i++)
-                        {
-                            value |= memory[rsp + i] << (i * 8);
-                        }
+                        registers[rd64] = load64(rsp);
                         rsp += 8;
-                        registers[rd64] = value;
                         break;
-                    }
                     case IT_REGREG_POPFQ:
-                    {
-                        u64_it value = 0;
-                        for (uint8_t i = 0; i < 8; i++)
-                        {
-                            value |= memory[rsp + i] << (i * 8);
-                        }
+                        rflags = load64(rsp);
                         rsp += 8;
-                        rflags = value;
                         break;
-                    }
                     case IT_REGREG_PUSH:
                         rsp -= 8;
-                        for (uint8_t i = 0; i < 8; i++)
-                        {
-                            memory[rsp + i] = (registers[rd64] >> (i * 8)) & 0xff;
-                        }
+                        store64(rsp, registers[rd64]);
                         break;
                     case IT_REGREG_PUSHFQ:
                         rsp -= 8;
-                        for (uint8_t i = 0; i < 8; i++)
-                        {
-                            memory[rsp + i] = (rflags >> (i * 8)) & 0xff;
-                        }
+                        store64(rsp, rflags);
                         break;
                     case IT_REGREG_SUB:
                         alu_execute(registers, ALU_SUB, rd64, registers[rs64]);
@@ -556,17 +592,11 @@ int main(int argc, char *argv[])
                         rip = registers[rd64];
                         continue;
                     case IT_XREGREG_CALL:
-                    {
                         // Push the address of the next instruction on stack
-                        u64_it return_address = rip + length;
                         rsp -= 8;
-                        for (uint8_t i = 0; i < 8; i++)
-                        {
-                            memory[rsp + i] = (return_address >> i * 8) & 0xff;
-                        }
+                        store64(rsp, rip + length);
                         rip = registers[rd64];
                         continue;
-                    }
                     case IT_XREGREG_INSTRUCTIONCOUNT:
                     default:
                         emit_fatal("at address 0x%llx: illegal IC_XREGREG instruction: 0x%x", rip, op);
@@ -652,50 +682,32 @@ int main(int argc, char *argv[])
 
                 uint8_t r64 = buffer[1] >> 4;
                 u64_it addr24 = buffer[2] | (buffer[3] << 8) | (buffer[4] << 16);
-                VALIDATE_ADDR(addr24, rip);
 
                 switch (op)
                 {
                     case IT_MEM_LDB:
-                        registers[r64] = memory[addr24];
+                        registers[r64] = load8(addr24);
                         break;
                     case IT_MEM_LDW:
-                        registers[r64] = memory[addr24] | (memory[addr24 + 1] << 8);
+                        registers[r64] = load16(addr24);
                         break;
                     case IT_MEM_LDD:
-                        registers[r64] = memory[addr24]
-                            | (memory[addr24 + 1] << 8)
-                            | (memory[addr24 + 2] << 16)
-                            | (memory[addr24 + 3] << 24);
+                        registers[r64] = load32(addr24);
                         break;
                     case IT_MEM_LDQ:
-                    {
-                        u64_it temp = 0;
-                        for (int i = 0; i < 8; i++)
-                        {
-                            temp |= memory[addr24 + i] << (i * 8);
-                        }
-                        registers[r64] = temp;
+                        registers[r64] = load64(addr24);
                         break;
-                    }
                     case IT_MEM_STB:
-                        memory[addr24] = registers[r64] & 0xff;
+                        store8(addr24, registers[r64] & 0xff);
                         break;
                     case IT_MEM_STW:
-                        memory[addr24] = registers[r64] & 0xff;
-                        memory[addr24 + 1] = (registers[r64] >> 8) & 0xff;
+                        store16(addr24, registers[r64] & 0xffff);
                         break;
                     case IT_MEM_STD:
-                        memory[addr24] = registers[r64] & 0xff;
-                        memory[addr24 + 1] = (registers[r64] >> 8) & 0xff;
-                        memory[addr24 + 2] = (registers[r64] >> 16) & 0xff;
-                        memory[addr24 + 3] = (registers[r64] >> 24) & 0xff;
+                        store32(addr24, registers[r64] & 0xffffffff);
                         break;
                     case IT_MEM_STQ:
-                        for (int i = 0; i < 8; i++)
-                        {
-                            memory[addr24 + i] = (registers[r64] >> (i * 8)) & 0xff;
-                        }
+                        store64(addr24, registers[r64]);
                         break;
                     case IT_MEM_INSTRUCTIONCOUNT:
                     default:
@@ -707,7 +719,6 @@ int main(int argc, char *argv[])
             case IC_BRANCH:
             {
                 u64_it addr24 = buffer[1] | (buffer[2] << 8) | (buffer[3] << 16);
-                VALIDATE_ADDR(addr24, rip);
 
                 // We continue to avoid "dip += length;"
                 switch (op)
@@ -716,27 +727,14 @@ int main(int argc, char *argv[])
                         rip = addr24;
                         continue;
                     case IT_BRANCH_CALL:
-                    {
-                        u64_it return_address = rip + length;
                         rsp -= 8;
-                        for (int i = 0; i < 8; i++)
-                        {
-                            memory[rsp + i] = (return_address >> (i * 8)) & 0xff;
-                        }
+                        store64(rsp, rip + length);
                         rip = addr24;
                         continue;
-                    }
                     case IT_BRANCH_RET:
-                    {
-                        u64_it return_address = 0;
-                        for (int i = 0; i < 8; i++)
-                        {
-                            return_address |= memory[rsp + i] << (i * 8);
-                        }
+                        rip = load64(rsp);
                         rsp += 8;
-                        rip = return_address;
                         continue;
-                    }
                     case IT_BRANCH_INSTRUCTIONCOUNT:
                     default:
                         emit_fatal("at address 0x%llx: illegal IC_BRANCH instruction: 0x%x", rip, op);
@@ -747,7 +745,6 @@ int main(int argc, char *argv[])
             case IC_XBRANCH:
             {
                 u64_it addr24 = buffer[1] | (buffer[2] << 8) | (buffer[3] << 16);
-                VALIDATE_ADDR(addr24, rip);
 
                 switch (op)
                 {
