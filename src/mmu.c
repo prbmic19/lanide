@@ -56,19 +56,19 @@ u64_it translate(u64_it vaddr, uint8_t access_perms)
     // Check if the page has perm R.
     if ((access_perms & PERM_READ) && !(pe.permissions & PERM_READ))
     {
-        emit_fatal("tried to read from non-readable page: %llu", vaddr, vpage);
+        emit_fatal("tried to read from non-readable page: %llu", vpage);
     }
 
     // Check if the page has perm W.
     if ((access_perms & PERM_WRITE) && !(pe.permissions & PERM_WRITE))
     {
-        emit_fatal("tried to write to read-only page: %llu", vaddr, vpage);
+        emit_fatal("tried to write to read-only page: %llu", vpage);
     }
 
     // Check if the page has perm X.
     if ((access_perms & PERM_EXECUTE) && !(pe.permissions & PERM_EXECUTE))
     {
-        emit_fatal("tried to execute on non-executable page: %llu", vaddr, vpage);
+        emit_fatal("tried to execute on non-executable page: %llu", vpage);
     }
 
     return pe.ppage_index * PAGE_SIZE + offset;
