@@ -50,7 +50,7 @@ It adds two numbers and halts. (nothing fancy, but it shows the basics):
 .section .text
     mov rxa, 2500
     mov rxb, 7500
-    add rxa, dxt
+    add rxa, rxb
     hlt
 ```
 Assembling it:

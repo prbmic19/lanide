@@ -16,10 +16,9 @@ static const char magic_bytes[MAGIC_BYTES_SIZE] = {'\x7f', '\x00', '\x00', 'R', 
 #define RDISASM_VERSION "0.4.1"
 #define REMU_VERSION    "0.4.3"
 
-// Define these using `long long`. It's guaranteed already that `long long` is at least 64 bits wide.
-// It's a bit dangerous to mix `uint64_t` and the `ULL` prefix for integer literals, the compiler might get pedantic about it.
-typedef long long i64_it;
-typedef unsigned long long u64_it;
+// Use these instead of int64_t and uint64_t so integer suffixes and format specifiers would just work
+typedef long long i64;
+typedef unsigned long long u64;
 
 // Amount of memory each process gets
 #define MEM_SIZE    0x400000
@@ -45,7 +44,7 @@ typedef unsigned long long u64_it;
 #define STACK_SIZE  (MEM_SIZE / 4)
 
 // Offset of .text section in the actual .lx file
-// Magic bytes, rodata offset, and data offset.
+// Magic bytes + rodata offset + data offset
 // Also represents the size of the header.
 #define TEXT_FILE_OFFSET (MAGIC_BYTES_SIZE + sizeof(uint32_t) + sizeof(uint32_t))
 
@@ -220,18 +219,18 @@ static inline int get_length(uint8_t opcode, uint16_t operand_size, bool prefix_
     switch (class)
     {
         case IC_REGREG:
-            // prefix + opcode + rbyte(optional)
+            // prefix(optional) + opcode + rbyte(optional)
             return prefix_present + (
                 ((op == IT_REGREG_PUSHFQ) || op == IT_REGREG_POPFQ)
                     ? 1
                     : 2
             );
         case IC_XREGREG:
-            // prefix + opcode + rbyte
+            // prefix(optional) + opcode + rbyte
             return prefix_present + 2;
         case IC_REGIMM:
         {
-            // prefix + opcode + rbyte + imm
+            // prefix(optional) + opcode + rbyte + imm
 
             uint8_t imm_bytes_count = 0;
             switch (operand_size)

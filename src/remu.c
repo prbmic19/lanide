@@ -12,6 +12,8 @@ static const char *reg_names[REG_COUNT] = {
 };
 
 static FILE *fin = NULL;
+
+// This should NOT be static.
 uint8_t *memory = NULL;
 
 // Default operand size.
@@ -46,14 +48,14 @@ static size_t get_file_size(void)
     return (size_t)end;
 }
 
-static inline bool compute_parity(u64_it number)
+static inline bool compute_parity(u64 number)
 {
     number ^= number >> 4;
     number &= 0xf;
     return !(0x6996 >> number & 1);
 }
 
-static inline u64_it get_mask_for_size(void)
+static inline u64 get_mask_for_size(void)
 {
     if (operand_size >= 64)
     {
@@ -63,7 +65,7 @@ static inline u64_it get_mask_for_size(void)
 }
 
 // Updates flags based on the result and operands given.
-static inline void update_flags(u64_it registers[], enum alu_op operation, u64_it result, u64_it lhs, u64_it rhs)
+static inline void update_flags(u64 registers[], enum alu_op operation, u64 result, u64 lhs, u64 rhs)
 {
     if (result == 0)
     {
@@ -172,14 +174,14 @@ static inline void update_flags(u64_it registers[], enum alu_op operation, u64_i
 }
 
 // Executes ALU operations, subsequently updating flags.
-static inline void alu_execute(u64_it registers[], enum alu_op operation, uint8_t rd64, u64_it rhs)
+static inline void alu_execute(u64 registers[], enum alu_op operation, uint8_t rd64, u64 rhs)
 {
-    u64_it mask = get_mask_for_size();
-    u64_it lhs = registers[rd64] & mask;
+    u64 mask = get_mask_for_size();
+    u64 lhs = registers[rd64] & mask;
     rhs &= mask;
 
-    u64_it result = lhs;
-    u64_it throwaway = 0;
+    u64 result = lhs;
+    u64 throwaway = 0;
 
     switch (operation)
     {
@@ -193,16 +195,16 @@ static inline void alu_execute(u64_it registers[], enum alu_op operation, uint8_
             break;
         // Lower 64 bits of 128-bit multiplication result
         case ALU_MUL:
-            result = (u64_it)((__uint128_t)lhs * (__uint128_t)rhs) & mask;
+            result = (u64)((__uint128_t)lhs * (__uint128_t)rhs) & mask;
             throwaway = result;
             break;
         // Signed and unsigned higher 64 bits of 128-bit multiplication result
         case ALU_MULH:
-            result = (u64_it)(((__uint128_t)lhs * (__uint128_t)rhs) >> 64);
+            result = (u64)(((__uint128_t)lhs * (__uint128_t)rhs) >> 64);
             throwaway = result;
             break;
         case ALU_SMULH:
-            result = (u64_it)(((__int128_t)(i64_it)lhs * (__int128_t)(i64_it)rhs) >> 64);
+            result = (u64)(((__int128_t)(i64)lhs * (__int128_t)(i64)rhs) >> 64);
             throwaway = result;
             break;
         case ALU_DIV:
@@ -218,7 +220,7 @@ static inline void alu_execute(u64_it registers[], enum alu_op operation, uint8_
             {
                 emit_fatal("at address 0x%llx: division by zero", rip);
             }
-            result = (u64_it)((i64_it)lhs / (i64_it)rhs) & mask;
+            result = (u64)((i64)lhs / (i64)rhs) & mask;
             throwaway = result;
             break;
         case ALU_AND:
@@ -274,6 +276,7 @@ static int display_version(void)
 // Cleanup before exit.
 static void cleanup(void)
 {
+    // Try to avoid disasters
     if (fin)
     {
         fclose(fin);
@@ -292,10 +295,10 @@ int main(int argc, char *argv[])
     };
 
     set_progname(argv[0]);
-    optional_enable_vt_mode();
+    maybe_enable_vt_mode();
     atexit(cleanup);
 
-    // Default = input;
+    // Default = input
     int position = parse_args(argc, argv, options, sizeof(options) / sizeof(options[0]));
 
     // --help
@@ -330,7 +333,7 @@ int main(int argc, char *argv[])
     if (!fin)
     {
         // TODO: give better reasons
-        // Such as if the input "file" was actually a directory, that would be invalid.
+        // Such as if the input "file" was actually a directory
         emit_fatal("failed to open input file: %s", strerror(errno));
     }
 
@@ -434,7 +437,7 @@ int main(int argc, char *argv[])
 
     // Initialize registers.
     // Set `rsp` to STACK_BASE and `rip` to TEXT_BASE.
-    u64_it registers[REG_COUNT] = {
+    u64 registers[REG_COUNT] = {
         [7] = STACK_BASE,
         [16] = TEXT_BASE
     };
@@ -495,7 +498,7 @@ int main(int argc, char *argv[])
             {
                 uint8_t rd64 = buffer[1] >> 4;
                 uint8_t rs64 = buffer[1] & 0xf;
-                u64_it mask = get_mask_for_size();
+                u64 mask = get_mask_for_size();
 
                 // I'm pretty sure it's impossible for us to get an illegal instruction here.
                 // IC_REGREG already has 16 defined instructions, and a nibble can hold only 16 possible values.
@@ -556,6 +559,8 @@ int main(int argc, char *argv[])
                     case IT_REGREG_INSTRUCTIONCOUNT:
                         // Ignore.
                         break;
+                    default:
+                        // What the hell? This should be impossible.
                 }
 
                 registers[rd64] &= mask;
@@ -565,13 +570,13 @@ int main(int argc, char *argv[])
             {
                 uint8_t rd64 = buffer[1] >> 4;
                 uint8_t rs64 = buffer[1] & 0xf;
-                u64_it mask = get_mask_for_size();
+                u64 mask = get_mask_for_size();
 
                 switch (op)
                 {
                     case IT_XREGREG_XCHG:
                     {
-                        u64_it temp = registers[rd64];
+                        u64 temp = registers[rd64];
                         registers[rd64] = registers[rs64];
                         registers[rs64] = temp;
                         break;
@@ -614,12 +619,12 @@ int main(int argc, char *argv[])
 
                 uint8_t r64 = buffer[1] >> 4;
                 uint8_t immbytes_count = operand_size / 8;
-                u64_it imm = 0;
-                u64_it mask = get_mask_for_size();
+                u64 imm = 0;
+                u64 mask = get_mask_for_size();
 
                 for (uint8_t i = 0; i < immbytes_count; i++)
                 {
-                    imm |= ((u64_it)buffer[2 + i]) << (i * 8);
+                    imm |= ((u64)buffer[2 + i]) << (i * 8);
                 }
 
                 imm &= mask;
@@ -681,7 +686,7 @@ int main(int argc, char *argv[])
                 }
 
                 uint8_t r64 = buffer[1] >> 4;
-                u64_it addr24 = buffer[2] | (buffer[3] << 8) | (buffer[4] << 16);
+                u64 addr24 = buffer[2] | (buffer[3] << 8) | (buffer[4] << 16);
 
                 switch (op)
                 {
@@ -718,7 +723,7 @@ int main(int argc, char *argv[])
             }
             case IC_BRANCH:
             {
-                u64_it addr24 = buffer[1] | (buffer[2] << 8) | (buffer[3] << 16);
+                u64 addr24 = buffer[1] | (buffer[2] << 8) | (buffer[3] << 16);
 
                 // We continue to avoid "dip += length;"
                 switch (op)
@@ -744,7 +749,7 @@ int main(int argc, char *argv[])
             }
             case IC_XBRANCH:
             {
-                u64_it addr24 = buffer[1] | (buffer[2] << 8) | (buffer[3] << 16);
+                u64 addr24 = buffer[1] | (buffer[2] << 8) | (buffer[3] << 16);
 
                 switch (op)
                 {
@@ -798,7 +803,7 @@ int main(int argc, char *argv[])
                         break;
                     case IT_XBRANCH_INSTRUCTIONCOUNT:
                     default:
-                        emit_fatal("at address 0x%llx: illegal IC_XBRANCH instruction: 0x%x", rip, op);
+                        // Shouldn't happen
                 }
 
                 break;

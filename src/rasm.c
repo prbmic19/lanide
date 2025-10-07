@@ -48,7 +48,7 @@ static bool is_zero(const char *string)
     }
 
     char *endptr = NULL;
-    u64_it value = strtoull(string, &endptr, 0);
+    u64 value = strtoull(string, &endptr, 0);
 
     if (*endptr != '\0')
     {
@@ -100,7 +100,6 @@ uint16_t get_operand_size(const char *operand)
     return 0;
 }
 
-// Function used for bsearch() comparison.
 static int compare_instruction(const void *a, const void *b)
 {
     return strcmp((const char *)a, ((const struct instruction_entry *)b)->mnemonic);
@@ -139,6 +138,7 @@ static int display_version(void)
 // Cleanup before exit.
 static void cleanup(void)
 {
+    // Try to avoid disasters
     if (fin)
     {
         fclose(fin);
@@ -164,7 +164,7 @@ int main(int argc, char *argv[])
     };
 
     set_progname(argv[0]);
-    optional_enable_vt_mode();
+    maybe_enable_vt_mode();
     atexit(cleanup);
 
     // Parse arguments passed.
@@ -219,11 +219,12 @@ int main(int argc, char *argv[])
     {
         emit_fatal("failed to allocate memory: %s", strerror(errno));
     }
+
     size_t text_size = 0;
     size_t rodata_size = 0;
     size_t data_size = 0;
 
-    // "ID" of the current section.
+    // "ID" of the current section
     uint16_t current_section = SECT_INVALID;
 
     char line[256] = {0};
@@ -283,9 +284,9 @@ int main(int argc, char *argv[])
         // Emit a qword
         if (STR_EQUAL_LEN(mnemonic, ".qword", 6))
         {
-            u64_it value = strtoull(destination, NULL, 0);
+            u64 value = strtoull(destination, NULL, 0);
             ei.length = 8;
-            for (int i = 0; i < 8; i++)
+            for (uint8_t i = 0; i < 8; i++)
             {
                 ei.bytes[i] = (value >> i * 8) & 0xff;
             }
@@ -315,7 +316,7 @@ int main(int argc, char *argv[])
         }
         
         ei.operand_size = get_operand_size(destination) ? get_operand_size(destination) : get_operand_size(source);
-        if (ei.operand_size == 0 && n > 1)
+        if (!ei.operand_size && n > 1)
         {
             emit_warning("at %s:%zu: unable to infer operand size, assuming 64-bit", input_file, line_number);
             ei.operand_size = 64;

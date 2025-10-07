@@ -7,7 +7,6 @@
  * Macros to indicate a particular error that would occur,
  * using `apstat` as the bit field.
  */
-
 #define APEN_VALEXPECT  0x1
 #define APEN_NOSUCHFLAG 0x2
 #define APEN_NODEFAULT  0x4

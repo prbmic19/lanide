@@ -4,14 +4,14 @@
 #include <stdint.h>
 
 // Encoder function type.
-typedef void (*encoder_ft)(struct instruction *ei, const char *restrict destination, const char *restrict source);
+typedef void (*encoder_fn)(struct instruction *ei, const char *restrict destination, const char *restrict source);
 
 // Maps mnemonic to an encoder.
 // Multiple mnemonics can have the same encoder, thus having the same opcode.
 struct instruction_entry
 {
     const char *mnemonic;
-    encoder_ft encode;
+    encoder_fn encode;
 };
 
 extern const struct instruction_entry instruction_table[];

@@ -37,6 +37,8 @@ void emit_fatal(const char *fmt, ...)
     exit(1);
 }
 
+/* These two pile up */
+
 void emit_error(const char *fmt, ...)
 {
     va_list args;
@@ -60,12 +62,13 @@ void emit_warning(const char *fmt, ...)
 }
 
 // Seems out of place... but good to have.
+
 #ifdef _WIN32
 #   define WIN32_LEAN_AND_MEAN
 #   include <windows.h>
 
 // Enables VT mode on Windows, ensuring we have proper color output. Even on conhost.exe and such.
-void optional_enable_vt_mode(void)
+void maybe_enable_vt_mode(void)
 {
     HANDLE stdout_handle = GetStdHandle(STD_OUTPUT_HANDLE);
     if (stdout_handle == INVALID_HANDLE_VALUE)
@@ -84,7 +87,7 @@ void optional_enable_vt_mode(void)
 }
 #else
 // On POSIX terminals, ANSI escape codes usually just work.
-void optional_enable_vt_mode(void)
+void maybe_enable_vt_mode(void)
 {
 }
 #endif

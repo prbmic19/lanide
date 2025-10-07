@@ -80,9 +80,9 @@ static const char *color_mnemonic(const char *restrict mnemonic, const char *res
     const char *format;
     if (colored_display)
     {
-        static char fmtbuf[32];
-        snprintf(fmtbuf, sizeof(fmtbuf), "\x1b[33m%s\x1b[0m", mnemonic_format);
-        format = fmtbuf;
+        static char format_buffer[32];
+        snprintf(format_buffer, sizeof(format_buffer), "\x1b[33m%s\x1b[0m", mnemonic_format);
+        format = format_buffer;
     }
     else
     {
@@ -93,7 +93,7 @@ static const char *color_mnemonic(const char *restrict mnemonic, const char *res
     return buffer_ring[current];
 }
 
-static const char *color_u64(u64_it number, const char *restrict format, const char *restrict color)
+static const char *color_u64(u64 number, const char *restrict format, const char *restrict color)
 {
     static char buffer_ring[COLOR_RING_SLOTS][COLOR_BUFFER_SIZE] = {0};
     static uint32_t index = 0;
@@ -183,7 +183,7 @@ static inline bool is_valid_opcode(uint8_t opcode)
 }
 
 // Indicates a bad instruction was parsed.
-static void bad_instruction(uint8_t initial_opcode, u64_it ip)
+static void bad_instruction(uint8_t initial_opcode, u64 ip)
 {
     // If we have a prefix, display it
     if (prefix_present && operand_size)
@@ -207,7 +207,7 @@ static void bad_instruction(uint8_t initial_opcode, u64_it ip)
 }
 
 // Prints the raw encoded hex of the instruction at address `addr`.
-static void print_hex_bytes(u64_it address, int length)
+static void print_hex_bytes(u64 address, int length)
 {
     for (int i = 0; i < length && i < MAX_INSTRUCTION_LENGTH; i++)
     {
@@ -255,7 +255,7 @@ static inline int get_regindex_for_size(void)
 }
 
 // Disassembles a range of memory and prints it, starting from `ip` and ending at `end`.
-static void dump_disassembly(u64_it ip, u64_it end)
+static void dump_disassembly(u64 ip, u64 end)
 {
     while (ip < end)
     {
@@ -401,12 +401,12 @@ static void dump_disassembly(u64_it ip, u64_it end)
                 uint8_t r = byte1 >> 4;
                 uint8_t immbytes_count = get_ibc_for_size();
                 int reg_index = get_regindex_for_size();
-                u64_it imm = 0;
+                u64 imm = 0;
                 const char *mnemonics[] = {"add", "and", "cmp", "div", "mov", "mul", "mulh", "or", "sdiv", "smulh", "sub", "test"};
 
                 for (uint8_t i = 0; i < immbytes_count; i++)
                 {
-                    imm |= ((u64_it)memory[ip + prefix_present + 2 + i]) << (i * 8);
+                    imm |= ((u64)memory[ip + prefix_present + 2 + i]) << (i * 8);
                 }
 
                 if (op < sizeof(mnemonics) / sizeof(mnemonics[0]) && (byte1 & 0xf) == 0)
@@ -423,7 +423,7 @@ static void dump_disassembly(u64_it ip, u64_it end)
             case IC_MEM:
             {
                 uint8_t r = byte1 >> 4;
-                u64_it addr24 = memory[ip + prefix_present + 2]
+                u64 addr24 = memory[ip + prefix_present + 2]
                     | (memory[ip + prefix_present + 3] << 8)
                     | (memory[ip + prefix_present + 4] << 16);
                 int reg_index = get_regindex_for_size();
@@ -451,7 +451,7 @@ static void dump_disassembly(u64_it ip, u64_it end)
             }
             case IC_BRANCH:
             {
-                u64_it addr24 = memory[ip + prefix_present + 1]
+                u64 addr24 = memory[ip + prefix_present + 1]
                     | (memory[ip + prefix_present + 2] << 8)
                     | (memory[ip + prefix_present + 3] << 16);
                 const char *mnemonics[] = {"call", "jmp", "ret"};
@@ -476,7 +476,7 @@ static void dump_disassembly(u64_it ip, u64_it end)
             }
             case IC_XBRANCH:
             {
-                u64_it addr24 = memory[ip + prefix_present + 1]
+                u64 addr24 = memory[ip + prefix_present + 1]
                     | (memory[ip + prefix_present + 2] << 8)
                     | (memory[ip + prefix_present + 3] << 16);
                 const char *mnemonics[] = {"ja", "jae", "jb", "jbe", "je", "jg", "jge", "jl", "jle", "jno", "jne", "jnp", "jns", "jo", "jp", "js"};
@@ -556,6 +556,7 @@ static int display_version(void)
 // Cleanup before exit.
 static void cleanup(void)
 {
+    // Try to avoid disasters
     if (fin)
     {
         fclose(fin);
@@ -575,7 +576,7 @@ int main(int argc, char *argv[])
     };
 
     set_progname(argv[0]);
-    optional_enable_vt_mode();
+    maybe_enable_vt_mode();
     atexit(cleanup);
 
     // Default = input

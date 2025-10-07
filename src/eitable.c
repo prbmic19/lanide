@@ -81,7 +81,7 @@ static void prepend_byte(struct instruction *ei, uint8_t byte)
 }
 
 // Checks if the operand is a register or not, and sets the appropriate variable.
-static bool is_register(const char *operand, int *reg_idx, u64_it *imm64)
+static bool is_register(const char *operand, int *reg_idx, u64 *imm64)
 {
     // Check if it's a register, if so, set reg_idx and return true.
     int index = reg_index(operand);
@@ -92,7 +92,7 @@ static bool is_register(const char *operand, int *reg_idx, u64_it *imm64)
     }
 
     char *endptr = NULL;
-    u64_it imm = strtoull(operand, &endptr, 0);
+    u64 imm = strtoull(operand, &endptr, 0);
     // If it was fully consumed, it must be an immediate
     if (*endptr == '\0')
     {
@@ -139,7 +139,7 @@ static void make_xregreg(struct instruction *ei, enum instruction_type it, uint8
 }
 
 // Encodes IC_REGIMM instructions.
-static void make_regimm(struct instruction *ei, enum instruction_type it, uint8_t r64, u64_it imm)
+static void make_regimm(struct instruction *ei, enum instruction_type it, uint8_t r64, u64 imm)
 {
     ei->bytes[0] = (IC_REGIMM << 4) | (it & 0xf),
     ei->bytes[1] = (r64 & 0xf) << 4;
@@ -188,14 +188,14 @@ static void make_regimm(struct instruction *ei, enum instruction_type it, uint8_
             ei->bytes[8] = (imm >> 48) & 0xff;
             ei->bytes[9] = (imm >> 56) & 0xff;
             break;
-        // Shouldn't be possible, but it's better to be safe than sorry
+        // This should never be reached. If it does, something horrible has happened.
         default:
             emit_error("invalid operand size: %u", ei->operand_size);
     }
 }
 
 // Encodes IC_MEM instructions.
-static void make_mem(struct instruction *ei, enum instruction_type it, uint8_t r64, u64_it addr24)
+static void make_mem(struct instruction *ei, enum instruction_type it, uint8_t r64, u64 addr24)
 {
     ei->length = 5;
     ei->bytes[0] = (IC_MEM << 4) | (it & 0xf);
@@ -206,7 +206,7 @@ static void make_mem(struct instruction *ei, enum instruction_type it, uint8_t r
 }
 
 // Encodes IC_BRANCH instructions.
-static void make_branch(struct instruction *ei, enum instruction_type it, u64_it addr24)
+static void make_branch(struct instruction *ei, enum instruction_type it, u64 addr24)
 {
     if (it == IT_BRANCH_RET)
     {
@@ -223,7 +223,7 @@ static void make_branch(struct instruction *ei, enum instruction_type it, u64_it
 }
 
 // Encodes IC_XBRANCH instructions.
-static void make_xbranch(struct instruction *ei, enum instruction_type it, u64_it addr24)
+static void make_xbranch(struct instruction *ei, enum instruction_type it, u64 addr24)
 {
     ei->length = 4;
     ei->bytes[0] = (IC_XBRANCH << 4) | (it & 0xf);
@@ -248,7 +248,7 @@ ENCODER_DEFINE(add, ei, rd64, src)
 {
     int r1 = reg_index(rd64);
     int r2 = 0;
-    u64_it imm = 0;
+    u64 imm = 0;
 
     if (is_register(src, &r2, &imm))
     {
@@ -264,7 +264,7 @@ ENCODER_DEFINE(sub, ei, rd64, src)
 {
     int r1 = reg_index(rd64);
     int r2 = 0;
-    u64_it imm = 0;
+    u64 imm = 0;
 
     if (is_register(src, &r2, &imm))
     {
@@ -280,7 +280,7 @@ ENCODER_DEFINE(mul, ei, rd64, src)
 {
     int r1 = reg_index(rd64);
     int r2 = 0;
-    u64_it imm = 0;
+    u64 imm = 0;
 
     if (is_register(src, &r2, &imm))
     {
@@ -296,7 +296,7 @@ ENCODER_DEFINE(mulh, ei, rd64, src)
 {
     int r1 = reg_index(rd64);
     int r2 = 0;
-    u64_it imm = 0;
+    u64 imm = 0;
 
     if (is_register(src, &r2, &imm))
     {
@@ -312,7 +312,7 @@ ENCODER_DEFINE(smulh, ei, rd64, src)
 {
     int r1 = reg_index(rd64);
     int r2 = 0;
-    u64_it imm = 0;
+    u64 imm = 0;
 
     if (is_register(src, &r2, &imm))
     {
@@ -328,7 +328,7 @@ ENCODER_DEFINE(div, ei, rd64, src)
 {
     int r1 = reg_index(rd64);
     int r2 = 0;
-    u64_it imm = 0;
+    u64 imm = 0;
 
     if (is_register(src, &r2, &imm))
     {
@@ -344,7 +344,7 @@ ENCODER_DEFINE(sdiv, ei, rd64, src)
 {
     int r1 = reg_index(rd64);
     int r2 = 0;
-    u64_it imm = 0;
+    u64 imm = 0;
 
     if (is_register(src, &r2, &imm))
     {
@@ -360,7 +360,7 @@ ENCODER_DEFINE(and, ei, rd64, src)
 {
     int r1 = reg_index(rd64);
     int r2 = 0;
-    u64_it imm = 0;
+    u64 imm = 0;
 
     if (is_register(src, &r2, &imm))
     {
@@ -376,7 +376,7 @@ ENCODER_DEFINE(or, ei, rd64, src)
 {
     int r1 = reg_index(rd64);
     int r2 = 0;
-    u64_it imm = 0;
+    u64 imm = 0;
 
     if (is_register(src, &r2, &imm))
     {
@@ -392,7 +392,7 @@ ENCODER_DEFINE(xor, ei, rd64, src)
 {
     int r1 = reg_index(rd64);
     int r2 = 0;
-    u64_it imm = 0;
+    u64 imm = 0;
 
     if (is_register(src, &r2, &imm))
     {
@@ -424,7 +424,7 @@ ENCODER_DEFINE(mov, ei, rd64, src)
 {
     int r1 = reg_index(rd64);
     int r2 = 0;
-    u64_it imm = 0;
+    u64 imm = 0;
 
     if (is_register(src, &r2, &imm))
     {
@@ -440,7 +440,7 @@ ENCODER_DEFINE(cmp, ei, rd64, src)
 {
     int r1 = reg_index(rd64);
     int r2 = 0;
-    u64_it imm = 0;
+    u64 imm = 0;
 
     if (is_register(src, &r2, &imm))
     {
@@ -456,7 +456,7 @@ ENCODER_DEFINE(test, ei, rd64, src)
 {
     int r1 = reg_index(rd64);
     int r2 = 0;
-    u64_it imm = 0;
+    u64 imm = 0;
 
     if (is_register(src, &r2, &imm))
     {
@@ -575,7 +575,7 @@ ENCODER_DEFINE(jmp, ei, src, a)
 {
     (void)a;
     int r = 0;
-    u64_it addr24 = 0;
+    u64 addr24 = 0;
 
     if (is_register(src, &r, &addr24))
     {
@@ -591,7 +591,7 @@ ENCODER_DEFINE(call, ei, src, a)
 {
     (void)a;
     int r = 0;
-    u64_it addr24 = 0;
+    u64 addr24 = 0;
 
     if (is_register(src, &r, &addr24))
     {
