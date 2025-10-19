@@ -11,6 +11,9 @@ static const char *reg_names[REG_COUNT] = {
     "rip", "rflags"
 };
 
+// Macro to check if a certain flag in a bit field is set.
+#define FLAG_ISSET(bitfield, flag) (((bitfield) & (flag)) != 0)
+
 static FILE *fin = NULL;
 
 // This should NOT be static.
@@ -340,6 +343,7 @@ int main(int argc, char *argv[])
     // Parse magic bytes
     char header[MAGIC_BYTES_SIZE] = {0};
     size_t header_read = fread(header, 1, MAGIC_BYTES_SIZE, fin);
+    // If it's incomplete or malformed, then...
     if (header_read != MAGIC_BYTES_SIZE || memcmp(header, magic_bytes, MAGIC_BYTES_SIZE) != 0)
     {
         emit_fatal("invalid or missing magic bytes");
@@ -428,6 +432,7 @@ int main(int argc, char *argv[])
         }
     }
 
+    // If any errors accumulated, exit.
     if (errors_emitted != 0)
     {
         return 1;
@@ -457,13 +462,13 @@ int main(int argc, char *argv[])
             prefix_present = true;
             switch (initial_opcode & 0xf)
             {
-                case IT_PREFIX_OS32:
+                case IT_PREFIX_OPSZ32:
                     operand_size = 32;
                     break;
-                case IT_PREFIX_OS16:
+                case IT_PREFIX_OPSZ16:
                     operand_size = 16;
                     break;
-                case IT_PREFIX_OS8:
+                case IT_PREFIX_OPSZ8:
                     operand_size = 8;
                     break;
                 default:
@@ -532,16 +537,16 @@ int main(int argc, char *argv[])
                         alu_execute(registers, ALU_OR, rd64, registers[rs64]);
                         break;
                     case IT_REGREG_POP:
-                        registers[rd64] = load64(rsp);
-                        rsp += 8;
+                        registers[rd64] = load64(rsp) & mask;
+                        rsp += operand_size / 8;
                         break;
                     case IT_REGREG_POPFQ:
                         rflags = load64(rsp);
                         rsp += 8;
                         break;
                     case IT_REGREG_PUSH:
-                        rsp -= 8;
-                        store64(rsp, registers[rd64]);
+                        rsp -= operand_size / 8;
+                        store64(rsp, registers[rd64] & mask);
                         break;
                     case IT_REGREG_PUSHFQ:
                         rsp -= 8;
@@ -557,8 +562,6 @@ int main(int argc, char *argv[])
                         alu_execute(registers, ALU_XOR, rd64, registers[rs64]);
                         break;
                     case IT_REGREG_INSTRUCTIONCOUNT:
-                        // Ignore.
-                        break;
                     default:
                         // What the hell? This should be impossible.
                 }
@@ -597,7 +600,7 @@ int main(int argc, char *argv[])
                         rip = registers[rd64];
                         continue;
                     case IT_XREGREG_CALL:
-                        // Push the address of the next instruction on stack
+                        // Push the address of the next instruction on stack, so we can return to it eventually
                         rsp -= 8;
                         store64(rsp, rip + length);
                         rip = registers[rd64];
@@ -754,52 +757,52 @@ int main(int argc, char *argv[])
                 switch (op)
                 {
                     case IT_XBRANCH_JB:
-                        JUMP(addr24, rflags & FLAG_CF);
+                        JUMP(addr24, FLAG_ISSET(rflags, FLAG_CF));
                         break;
                     case IT_XBRANCH_JE:
-                        JUMP(addr24, rflags & FLAG_ZF);
+                        JUMP(addr24, FLAG_ISSET(rflags, FLAG_ZF));
                         break;
                     case IT_XBRANCH_JO:
-                        JUMP(addr24, rflags & FLAG_OF);
+                        JUMP(addr24, FLAG_ISSET(rflags, FLAG_OF));
                         break;
                     case IT_XBRANCH_JS:
-                        JUMP(addr24, rflags & FLAG_SF);
+                        JUMP(addr24, FLAG_ISSET(rflags, FLAG_SF));
                         break;
                     case IT_XBRANCH_JAE:
-                        JUMP(addr24, !(rflags & FLAG_CF));
+                        JUMP(addr24, !FLAG_ISSET(rflags, FLAG_CF));
                         break;
                     case IT_XBRANCH_JNE:
-                        JUMP(addr24, !(rflags & FLAG_ZF));
+                        JUMP(addr24, !FLAG_ISSET(rflags,FLAG_ZF));
                         break;
                     case IT_XBRANCH_JNO:
-                        JUMP(addr24, !(rflags & FLAG_OF));
+                        JUMP(addr24, !FLAG_ISSET(rflags, FLAG_OF));
                         break;
                     case IT_XBRANCH_JNS:
-                        JUMP(addr24, !(rflags & FLAG_SF));
+                        JUMP(addr24, !FLAG_ISSET(rflags, FLAG_SF));
                         break;
                     case IT_XBRANCH_JG:
-                        JUMP(addr24, !(rflags & FLAG_ZF) && ((rflags & FLAG_SF) == (rflags & FLAG_OF)));
+                        JUMP(addr24, !FLAG_ISSET(rflags, FLAG_ZF) && (FLAG_ISSET(rflags, FLAG_SF) == FLAG_ISSET(rflags, FLAG_OF)));
                         break;
                     case IT_XBRANCH_JGE:
-                        JUMP(addr24, (rflags & FLAG_SF) == (rflags & FLAG_OF));
+                        JUMP(addr24, FLAG_ISSET(rflags, FLAG_SF) == FLAG_ISSET(rflags, FLAG_OF));
                         break;
                     case IT_XBRANCH_JL:
-                        JUMP(addr24, (rflags & FLAG_SF) != (rflags & FLAG_OF));
+                        JUMP(addr24, FLAG_ISSET(rflags, FLAG_SF) != FLAG_ISSET(rflags, FLAG_OF));
                         break;
                     case IT_XBRANCH_JLE:
-                        JUMP(addr24, (rflags & FLAG_ZF) && ((rflags & FLAG_SF) != (rflags & FLAG_OF)));
+                        JUMP(addr24, FLAG_ISSET(rflags, FLAG_ZF) && (FLAG_ISSET(rflags, FLAG_SF) != FLAG_ISSET(rflags, FLAG_OF)));
                         break;
                     case IT_XBRANCH_JA:
-                        JUMP(addr24, !(rflags & FLAG_CF) && !(rflags & FLAG_ZF));
+                        JUMP(addr24, !FLAG_ISSET(rflags, FLAG_CF) && !FLAG_ISSET(rflags, FLAG_ZF));
                         break;
                     case IT_XBRANCH_JBE:
-                        JUMP(addr24, (rflags & FLAG_CF) && (rflags & FLAG_ZF));
+                        JUMP(addr24, FLAG_ISSET(rflags, FLAG_CF) && FLAG_ISSET(rflags, FLAG_ZF));
                         break;
                     case IT_XBRANCH_JP:
-                        JUMP(addr24, rflags & FLAG_PF);
+                        JUMP(addr24, FLAG_ISSET(rflags, FLAG_PF));
                         break;
                     case IT_XBRANCH_JNP:
-                        JUMP(addr24, !(rflags & FLAG_PF));
+                        JUMP(addr24, !FLAG_ISSET(rflags, FLAG_PF));
                         break;
                     case IT_XBRANCH_INSTRUCTIONCOUNT:
                     default:

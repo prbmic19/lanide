@@ -46,7 +46,7 @@ typedef unsigned long long u64;
 // Offset of .text section in the actual .lx file
 // Magic bytes + rodata offset + data offset
 // Also represents the size of the header.
-#define TEXT_FILE_OFFSET (MAGIC_BYTES_SIZE + sizeof(uint32_t) + sizeof(uint32_t))
+#define TEXT_FILE_OFFSET (MAGIC_BYTES_SIZE + sizeof(uint32_t) * 2)
 
 /**
  * I implemented x86 flags here. I was too lazy to design up my own, and this felt enough.
@@ -199,9 +199,9 @@ enum instruction_type
     IT_XBRANCH_JS,
     IT_XBRANCH_INSTRUCTIONCOUNT, // Special: marks end (also gives count) of IC_XBRANCH instructions
 
-    IT_PREFIX_OS32 = 0,
-    IT_PREFIX_OS16,
-    IT_PREFIX_OS8,
+    IT_PREFIX_OPSZ32 = 0,
+    IT_PREFIX_OPSZ16,
+    IT_PREFIX_OPSZ8,
     IT_PREFIX_INSTRUCTIONCOUNT, // Special: marks end (also gives count) of IC_PREFIX prefixes
 
     IT_MISC_HLT = 0,

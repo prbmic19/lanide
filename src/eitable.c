@@ -6,7 +6,7 @@
 
 // Macro to define encoders.
 #define ENCODER_DEFINE(mnemonic, ei, destination, source) \
-    void enc_##mnemonic(struct instruction *ei, const char *restrict destination, const char *restrict source)
+    void enc_##mnemonic(struct instruction *restrict ei, const char *restrict destination, const char *restrict source)
 
 static const char *reg_names[REG_COUNT][4] = {
     {"rxa", "dxa", "xa", "al"},
@@ -51,11 +51,11 @@ static inline enum instruction_type get_prefix_for_size(uint16_t operand_size)
     switch (operand_size)
     {
         case 8:
-            return IT_PREFIX_OS8;
+            return IT_PREFIX_OPSZ8;
         case 16:
-            return IT_PREFIX_OS16;
+            return IT_PREFIX_OPSZ16;
         case 32:
-            return IT_PREFIX_OS32;
+            return IT_PREFIX_OPSZ32;
         case 64:
             return 0;
         default:
@@ -81,7 +81,7 @@ static void prepend_byte(struct instruction *ei, uint8_t byte)
 }
 
 // Checks if the operand is a register or not, and sets the appropriate variable.
-static bool is_register(const char *operand, int *reg_idx, u64 *imm64)
+static bool is_register(const char *restrict operand, int *restrict reg_idx, u64 *restrict imm64)
 {
     // Check if it's a register, if so, set reg_idx and return true.
     int index = reg_index(operand);
@@ -153,7 +153,7 @@ static void make_regimm(struct instruction *ei, enum instruction_type it, uint8_
             }
             ei->length = 3;
             ei->bytes[2] = imm & 0xff;
-            prepend_byte(ei, (IC_PREFIX << 4) | IT_PREFIX_OS8);
+            prepend_byte(ei, (IC_PREFIX << 4) | IT_PREFIX_OPSZ8);
             break;
         case 16:
             if (imm > UINT16_MAX)
@@ -163,7 +163,7 @@ static void make_regimm(struct instruction *ei, enum instruction_type it, uint8_
             ei->length = 4;
             ei->bytes[2] = imm & 0xff;
             ei->bytes[3] = (imm >> 8) & 0xff;
-            prepend_byte(ei, (IC_PREFIX << 4) | IT_PREFIX_OS16);
+            prepend_byte(ei, (IC_PREFIX << 4) | IT_PREFIX_OPSZ16);
             break;
         case 32:
             if (imm > UINT32_MAX)
@@ -175,7 +175,7 @@ static void make_regimm(struct instruction *ei, enum instruction_type it, uint8_
             ei->bytes[3] = (imm >> 8) & 0xff;
             ei->bytes[4] = (imm >> 16) & 0xff;
             ei->bytes[5] = (imm >> 24) & 0xff;
-            prepend_byte(ei, (IC_PREFIX << 4) | IT_PREFIX_OS32);
+            prepend_byte(ei, (IC_PREFIX << 4) | IT_PREFIX_OPSZ32);
             break;
         case 64:
             ei->length = 10;

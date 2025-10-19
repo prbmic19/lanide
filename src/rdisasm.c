@@ -188,7 +188,7 @@ static void bad_instruction(uint8_t initial_opcode, u64 ip)
     // If we have a prefix, display it
     if (prefix_present && operand_size)
     {
-        const char *prefixes[] = {"os.32", "os.16", "os.8"};
+        const char *prefixes[] = {"opsz32", "opsz16", "opsz8"};
         const char *opt_bad = is_valid_opcode(memory[ip + 1])
             ? ""
             : color_mnemonic("(bad)", "%s");
@@ -270,13 +270,13 @@ static void dump_disassembly(u64 ip, u64 end)
             prefix_present = true;
             switch (initial_opcode & 0xf)
             {
-                case IT_PREFIX_OS32:
+                case IT_PREFIX_OPSZ32:
                     operand_size = 32;
                     break;
-                case IT_PREFIX_OS16:
+                case IT_PREFIX_OPSZ16:
                     operand_size = 16;
                     break;
-                case IT_PREFIX_OS8:
+                case IT_PREFIX_OPSZ8:
                     operand_size = 8;
                     break;
                 default:
@@ -335,8 +335,8 @@ static void dump_disassembly(u64 ip, u64 end)
                 const char *mnemonics[] = {
                     "add", "and", "cmp", "div",
                     "mov", "mul", "neg", "not",
-                    "or", "pop", "popfd", "push",
-                    "pushfd", "sub", "test", "xor"
+                    "or", "pop", "popfq", "push",
+                    "pushfq", "sub", "test", "xor"
                 };
 
                 if (op < sizeof(mnemonics) / sizeof(mnemonics[0]))
@@ -495,7 +495,7 @@ static void dump_disassembly(u64 ip, u64 end)
             // Just to ensure
             case IC_PREFIX:
             {
-                const char *prefixes[] = {"os.32", "os.16", "os.8"};
+                const char *prefixes[] = {"opsz32", "opsz16", "opsz8"};
 
                 if (op < sizeof(prefixes) / sizeof(prefixes[0]))
                 {

@@ -19,14 +19,14 @@
 struct mempage
 {
     u64 ppage_index;
-    uint8_t permissions;
+    uint32_t permissions;
 };
 
 extern struct mempage page_table[PAGE_COUNT];
 
-extern void map_page(u64 vpage, u64 ppage, uint8_t permissions);
+extern void map_page(u64 vpage, u64 ppage, uint32_t permissions);
 extern void unmap_page(u64 vpage);
-extern u64 translate(u64 vaddr, uint8_t access_perm);
+extern u64 translate(u64 vaddr, uint32_t access_perm);
 extern void setup_initial_mappings(void);
 
 extern uint8_t load8(u64 vaddr);

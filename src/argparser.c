@@ -37,7 +37,7 @@ int parse_args(int argc, char *argv[], struct option options[], unsigned int fla
                     {
                         if (*(options[f].value) != NULL)
                         {
-                            emit_warning("option '%s' specified multiple times, last occurrence takes precedence", argv[i], argv[i + 1]);
+                            emit_warning("option '%s' specified multiple times, last occurrence takes precedence", argv[i]);
                         }
                         *(options[f].value) = argv[++i];
                         found = true;
